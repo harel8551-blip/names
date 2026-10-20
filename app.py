@@ -5,6 +5,48 @@ import io
 
 st.set_page_config(page_title="Baby Matcher 👶", page_icon="👶", layout="centered")
 
+# --- הגדרות עיצוב לשפה העברית (RTL) ---
+st.markdown(
+    """
+    <style>
+    /* הפיכת כל האפליקציה לימין לשמאל */
+    body, .stApp {
+        direction: rtl;
+    }
+    
+    /* יישור כל סוגי הטקסטים לימין */
+    p, div, input, label, h1, h2, h3, h4, h5, h6, span, button, th, td {
+        direction: rtl;
+        text-align: right !important;
+    }
+    
+    /* הזזת סרגל הצד (Sidebar) לצד ימין */
+    [data-testid="stSidebar"] {
+        right: 0 !important;
+        left: auto !important;
+    }
+    
+    /* הזזת כפתור הפתיחה/סגירה של סרגל הצד שמאלה כדי שלא יוסתר */
+    [data-testid="collapsedControl"] {
+        right: auto !important;
+        left: 1rem !important;
+    }
+    
+    /* יישור התראות (Success/Error) לימין */
+    [data-testid="stAlert"] {
+        direction: rtl;
+        text-align: right;
+    }
+    
+    /* יישור רשימות נפתחות (Selectbox) לימין */
+    .stSelectbox div[data-baseweb="select"] {
+        text-align: right;
+    }
+    </style>
+    """,
+    unsafe_allow_html=True
+)
+
 SUPABASE_URL = st.secrets.get("SUPABASE_URL", "")
 SUPABASE_KEY = st.secrets.get("SUPABASE_KEY", "")
 ADMIN_PASSWORD = st.secrets.get("ADMIN_PASSWORD", "1234")
@@ -19,11 +61,20 @@ def get_supabase() -> Client:
 
 supabase = get_supabase()
 
+# משיכת כל השמות (עוקף את מגבלת ה-1000 של Supabase)
 def fetch_all_names():
+    all_data = []
+    batch_size = 1000
+    start = 0
     try:
-        # מושך עד 5000 שורות כדי לוודא שכל 1400 השמות מגיעים
-        res = supabase.table("names").select("name, gender, category, meaning").limit(5000).execute()
-        return res.data or []
+        while True:
+            res = supabase.table("names").select("name, gender, category, meaning").range(start, start + batch_size - 1).execute()
+            data = res.data or []
+            all_data.extend(data)
+            if len(data) < batch_size:
+                break
+            start += batch_size
+        return all_data
     except Exception:
         return []
 
@@ -70,19 +121,36 @@ def save_swipe(room, user, role, baby_name, category, status):
         pass
 
 def get_user_swiped_names(room, user):
+    all_data = []
+    batch_size = 1000
+    start = 0
     try:
-        res = supabase.table("swipes").select("baby_name").eq("room_code", room).eq("user_name", user).limit(5000).execute()
-        return set([row["baby_name"] for row in (res.data or [])])
+        while True:
+            res = supabase.table("swipes").select("baby_name").eq("room_code", room).eq("user_name", user).range(start, start + batch_size - 1).execute()
+            data = res.data or []
+            all_data.extend(data)
+            if len(data) < batch_size:
+                break
+            start += batch_size
+        return set([row["baby_name"] for row in all_data])
     except Exception:
         return set()
 
 def get_matches(room):
+    all_data = []
+    batch_size = 1000
+    start = 0
     try:
-        res = supabase.table("swipes").select("baby_name, user_name, role").eq("room_code", room).eq("status", "like").limit(5000).execute()
-        data = res.data or []
+        while True:
+            res = supabase.table("swipes").select("baby_name, user_name, role").eq("room_code", room).eq("status", "like").range(start, start + batch_size - 1).execute()
+            data = res.data or []
+            all_data.extend(data)
+            if len(data) < batch_size:
+                break
+            start += batch_size
         
         name_likes = {}
-        for row in data:
+        for row in all_data:
             b_name = row["baby_name"]
             if b_name not in name_likes:
                 name_likes[b_name] = {"users": [], "roles": []}
@@ -182,7 +250,6 @@ if st.session_state.is_admin:
                         if "meaning" not in df.columns:
                             df["meaning"] = ""
                         df["meaning"] = df["meaning"].fillna("")
-                        # איחוד כפילויות אם יש אותו שם פעמיים בטקסט
                         df = df.drop_duplicates(subset=["name"])
                         records = df[["name", "gender", "category", "meaning"]].to_dict(orient="records")
                         if insert_names_batch(records):
@@ -198,7 +265,7 @@ if st.session_state.is_admin:
         with st.form("add_name"):
             n_name = st.text_input("שם")
             n_gen = st.selectbox("מין", ["זכר", "נקבה", "יוניסקס"])
-            n_cat = st.text_input("קטגוריה (למשל: טבע ונוף - מים, מודרני וקליט - קצרים)")
+            n_cat = st.text_input("קטגוריה (למשל: טבע ונוף - מים)")
             n_mean = st.text_area("משמעות")
             if st.form_submit_button("הוסף") and n_name and n_cat:
                 if insert_names_batch([{"name": n_name, "gender": n_gen, "category": n_cat, "meaning": n_mean}]):
@@ -313,18 +380,16 @@ elif st.session_state.view_mode == "swipe":
                 st.rerun()
         st.stop()
 
-    # סינון המאגר לפי המין שנבחר והשמות שכבר הוחלקו
     user_swiped_names = get_user_swiped_names(st.session_state.room_code, st.session_state.user_name)
     gender_filtered_db = [
         item for item in NAMES_DB 
         if matches_gender_filter(item.get("gender", ""), st.session_state.selected_gender)
     ]
 
-    # שלב 2: בחירת קטגוריה ותת-קטגוריה בצורה נקייה ומסודרת
+    # שלב 2: בחירת קטגוריה ותת-קטגוריה
     if st.session_state.selected_category is None:
         st.title(f"בחר קטגוריה ({st.session_state.selected_gender}) 📂")
         
-        # קיבוץ לקטגוריות ראשיות ותתי-קטגוריות
         cat_tree = {}
         for item in gender_filtered_db:
             if item["name"] in user_swiped_names:
@@ -344,7 +409,6 @@ elif st.session_state.view_mode == "swipe":
         else:
             for main_c in sorted(cat_tree.keys()):
                 sub_dict = cat_tree[main_c]
-                # סך הכל שמות ייחודיים שנותרו בקטגוריה הראשית הזו
                 unique_in_main = len(set(
                     item["name"] for item in gender_filtered_db
                     if item["name"] not in user_swiped_names and any(
@@ -353,21 +417,19 @@ elif st.session_state.view_mode == "swipe":
                 ))
                 
                 with st.expander(f"📁 **{main_c}** ({unique_in_main} שמות נותרו)"):
-                    # כפתור לסנן את כל הקטגוריה הראשית יחד
                     if len(sub_dict) > 1:
                         if st.button(f"🌟 כל השמות ב-{main_c} ({unique_in_main})", key=f"ALL_{main_c}", use_container_width=True):
                             st.session_state.selected_category = f"MAIN:{main_c}"
                             st.rerun()
                         st.markdown("---")
                     
-                    # כפתורים לתתי-הקטגוריות (עד 4 תתי קטגוריות)
                     for full_cat, cnt in sorted(sub_dict.items()):
                         display_sub = full_cat.split(" - ", 1)[1] if " - " in full_cat else full_cat
                         if st.button(f"🔹 {display_sub} ({cnt} שמות)", key=f"SUB_{full_cat}", use_container_width=True):
                             st.session_state.selected_category = full_cat
                             st.rerun()
 
-    # שלב 3: מסך ההחלקה על השמות
+    # שלב 3: מסך ההחלקה
     else:
         sel_cat = st.session_state.selected_category
         if sel_cat.startswith("MAIN:"):
