@@ -163,6 +163,14 @@ def get_user_swiped_names(room, user):
     except Exception:
         return set()
 
+# פונקציה חדשה: בודקת אם מישהו אחר כבר אהב את השם הזה
+def get_who_liked_name(room, baby_name, current_user):
+    try:
+        res = supabase.table("swipes").select("user_name").eq("room_code", room).eq("baby_name", baby_name).eq("status", "like").neq("user_name", current_user).execute()
+        return list(set([row["user_name"] for row in (res.data or [])]))
+    except Exception:
+        return []
+
 def get_matches(room):
     all_data = []
     batch_size = 1000
@@ -212,7 +220,6 @@ def build_matches_df(matches_list, names_db):
     for m in matches_list:
         b_name = m["name"]
         info = db_dict.get(b_name, {})
-        # הוסר המין והקטגוריה לבקשתך
         rows.append({
             "שם": b_name,
             "משמעות": info.get("meaning", "אין פירוש"),
@@ -234,7 +241,7 @@ def matches_gender_filter(item_gender, selected_filter):
     return True
 
 # אתחול משתני סשן
-for key in ["room_code", "user_name", "user_role", "selected_gender", "selected_category", "is_admin", "view_mode"]:
+for key in ["room_code", "user_name", "user_role", "selected_gender", "selected_category", "is_admin", "view_mode", "match_alert"]:
     if key not in st.session_state:
         if key in ["room_code", "user_name", "user_role"]:
             st.session_state[key] = ""
@@ -473,6 +480,13 @@ elif st.session_state.view_mode == "swipe":
         unswiped_names_in_cat = [item for item in matching_items if item["name"] not in user_swiped_names]
         
         st.subheader(f"✨ {display_title} ({st.session_state.selected_gender})")
+
+        # --- תצוגת פופ-אפ התאמה אם קיימת במשתני הסשן ---
+        if st.session_state.match_alert:
+            st.balloons()
+            st.toast(st.session_state.match_alert, icon="💘")
+            st.success(st.session_state.match_alert)
+            st.session_state.match_alert = None # איפוס לאחר תצוגה
         
         if len(unswiped_names_in_cat) > 0:
             curr = unswiped_names_in_cat[0]
@@ -480,7 +494,6 @@ elif st.session_state.view_mode == "swipe":
             <div style="padding: 30px; border-radius: 15px; border: 2px solid #ff4b4b; text-align: center; background-color: #fafafa; margin-bottom: 20px;">
                 <h1 style="color: #ff4b4b; font-size: 48px; margin-bottom: 10px;">{curr['name']}</h1>
                 <p style="font-size: 18px; color: #444;"><b>משמעות:</b> {curr.get('meaning', 'אין פירוש')}</p>
-                <p style="font-size: 14px; color: #888;">מין: {curr['gender']} | קטגוריות: {curr['category']}</p>
             </div>
             """, unsafe_allow_html=True)
             
@@ -491,7 +504,13 @@ elif st.session_state.view_mode == "swipe":
                     st.rerun()
             with col2:
                 if st.button("❤️ אהבתי", use_container_width=True):
+                    # בדיקת התאמה עם שאר בני המשפחה
+                    other_likes = get_who_liked_name(st.session_state.room_code, curr["name"], st.session_state.user_name)
                     save_swipe(st.session_state.room_code, st.session_state.user_name, st.session_state.user_role, curr["name"], display_title, "like")
+                    
+                    if other_likes:
+                        st.session_state.match_alert = f"🎉 התאמה על השם '{curr['name']}' עם: {', '.join(other_likes)}!"
+                        
                     st.rerun()
                     
             total_in_cat = len(matching_items)
