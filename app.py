@@ -87,7 +87,7 @@ def insert_names_batch(records):
         st.error(f"שגיאה בטעינת הנתונים: {e}")
         return False
 
-# --- משיכת מידע מרוכזת (פותרת את בעיית המהירות) ---
+# --- משיכת מידע מרוכזת ---
 def fetch_room_swipes(room):
     all_data = []
     batch_size = 1000
@@ -142,7 +142,6 @@ def remove_like(room, user, baby_name):
     except Exception:
         pass
 
-# פונקציות עיבוד מהירות על הנתונים שנמשכו
 def get_user_swiped_names_local(room_swipes, user):
     return set([row["baby_name"] for row in room_swipes if row["user_name"] == user])
 
@@ -281,7 +280,7 @@ room_swipes = fetch_room_swipes(st.session_state.room_code)
 room_users = get_room_users(st.session_state.room_code)
 parent_matches, family_matches = get_matches_local(room_swipes)
 
-# מנגנון התראות על התאמות חדשות שנוצרו (בזמן שהמשתמש היה במקום אחר)
+# מנגנון התראות על התאמות חדשות שנוצרו
 current_pms = set(pm["name"] for pm in parent_matches)
 if "notified_pm" not in st.session_state:
     st.session_state.notified_pm = current_pms
@@ -386,7 +385,6 @@ elif st.session_state.view_mode == "swipe":
     if st.session_state.selected_category is None:
         st.title(f"חיפוש שמות ל{st.session_state.selected_gender} 📂")
         
-        # כפתור גלובלי (לפי המין הנבחר בלבד)
         if st.button(f"🎲 רוצה פשוט להחליק? (מעורבב)", use_container_width=True, type="primary"):
             st.session_state.selected_category = "GLOBAL_RANDOM"
             st.session_state.sort_order = "random"
@@ -412,6 +410,7 @@ elif st.session_state.view_mode == "swipe":
         if not cat_tree:
             st.success("🎉 עברת על כל השמות במאגר עבור הבחירה הזו!")
         else:
+            st.markdown("### מעבר לפי קטגוריות 📂")
             for main_c in sorted(cat_tree.keys()):
                 sub_dict = cat_tree[main_c]
                 unique_in_main = len(set(item["name"] for item in gender_filtered_db if item["name"] not in user_swiped_names and any(c == main_c or c.startswith(main_c + " - ") for c in get_item_categories(item))))
@@ -420,7 +419,7 @@ elif st.session_state.view_mode == "swipe":
                     if len(sub_dict) > 1:
                         if st.button(f"🌟 כל השמות ב-{main_c} ({unique_in_main})", key=f"ALL_{main_c}", use_container_width=True):
                             st.session_state.selected_category = f"MAIN:{main_c}"
-                            st.session_state.sort_order = None # ידרוש בחירת אקראי/א-ב במסך הבא
+                            st.session_state.sort_order = None
                             st.rerun()
                         st.markdown("---")
                     
@@ -428,7 +427,7 @@ elif st.session_state.view_mode == "swipe":
                         display_sub = full_cat.split(" - ", 1)[1] if " - " in full_cat else full_cat
                         if st.button(f"🔹 {display_sub} ({cnt} שמות)", key=f"SUB_{full_cat}", use_container_width=True):
                             st.session_state.selected_category = full_cat
-                            st.session_state.sort_order = None # ידרוש בחירת אקראי/א-ב במסך הבא
+                            st.session_state.sort_order = None
                             st.rerun()
 
     # 3. מסך בחירת סידור (אקראי או א'-ב') אחרי בחירת קטגוריה
