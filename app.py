@@ -3,7 +3,8 @@ import streamlit as st
 from supabase import Client, create_client
 import io
 
-st.set_page_config(page_title="Baby Matcher 👶", page_icon="👶", layout="centered")
+# הגדרת הסרגל שיהיה סגור כברירת מחדל כדי להשאיר מסך נקי
+st.set_page_config(page_title="Baby Matcher 👶", page_icon="👶", layout="centered", initial_sidebar_state="collapsed")
 
 # --- הגדרות עיצוב לשפה העברית (RTL) וטבלאות מותאמות ---
 st.markdown(
@@ -18,20 +19,6 @@ st.markdown(
     p, div, input, label, h1, h2, h3, h4, h5, h6, span, button, th, td {
         direction: rtl;
         text-align: right !important;
-    }
-    
-    /* הזזת סרגל הצד (Sidebar) לצד ימין וביטול אנימציית הסגירה השבורה */
-    [data-testid="stSidebar"] {
-        right: 0 !important;
-        left: auto !important;
-        transition: none !important; /* הופך את הפתיחה/סגירה למיידית ונקייה */
-    }
-    
-    /* הזזת כפתור הפתיחה/סגירה של סרגל הצד שמאלה כדי שלא יוסתר */
-    [data-testid="collapsedControl"] {
-        right: auto !important;
-        left: 1rem !important;
-        transition: none !important;
     }
     
     /* יישור התראות לימין */
@@ -128,18 +115,15 @@ def check_and_register_user(room, user, role):
         res = supabase.table("room_users").select("user_name, role").eq("room_code", room).execute()
         users_in_room = res.data or []
         
-        # 1. אם המשתמש כבר רשום בחדר - תן לו להיכנס בלי לנסות לשמור אותו מחדש
         for u in users_in_room:
             if u["user_name"] == user:
                 return True, ""
                 
-        # 2. אם זה משתמש חדש, נוודא שהתפקיד (אבא/אמא) לא תפוס
         if role in ["אבא", "אמא"]:
             for u in users_in_room:
                 if u["role"] == role:
                     return False, f"התפקיד '{role}' כבר תפוס על ידי '{u['user_name']}' בחדר הזה."
         
-        # 3. שמירת המשתמש החדש במסד הנתונים
         supabase.table("room_users").insert({"room_code": room, "user_name": user, "role": role}).execute()
         return True, ""
     except Exception as e:
@@ -174,7 +158,6 @@ def get_user_swiped_names(room, user):
     except Exception:
         return set()
 
-# פונקציה לבדיקת התאמות עם משתמשים אחרים
 def get_who_liked_data(room, baby_name, current_user):
     try:
         res = supabase.table("swipes").select("user_name, role").eq("room_code", room).eq("baby_name", baby_name).eq("status", "like").neq("user_name", current_user).execute()
@@ -182,7 +165,6 @@ def get_who_liked_data(room, baby_name, current_user):
     except Exception:
         return []
 
-# שליפת רשימת השמות שהמשתמש הנוכחי אהב
 def get_my_likes(room, user):
     all_data = []
     batch_size = 1000
@@ -199,7 +181,6 @@ def get_my_likes(room, user):
     except Exception:
         return []
 
-# הסרת שם מהאהובים שלי (הופך לפסול כדי שלא יחזור למאגר)
 def remove_like(room, user, baby_name):
     try:
         supabase.table("swipes").update({"status": "reject"}).eq("room_code", room).eq("user_name", user).eq("baby_name", baby_name).execute()
@@ -445,9 +426,7 @@ elif st.session_state.view_mode == "my_likes":
     if not my_liked_names:
         st.info("עדיין לא אהבת אף שם. יאללה, חזור להחליק! 😎")
     else:
-        # יצירת מילון למציאת המשמעויות במהירות
         db_dict = {item["name"]: item for item in NAMES_DB}
-        
         for name in my_liked_names:
             info = db_dict.get(name, {})
             meaning = info.get("meaning", "אין פירוש")
