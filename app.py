@@ -172,11 +172,11 @@ def get_user_swiped_names(room, user):
     except Exception:
         return set()
 
-# פונקציה חדשה: בודקת אם מישהו אחר כבר אהב את השם הזה
-def get_who_liked_name(room, baby_name, current_user):
+# פונקציה לבדיקת התאמות עם משתמשים אחרים
+def get_who_liked_data(room, baby_name, current_user):
     try:
-        res = supabase.table("swipes").select("user_name").eq("room_code", room).eq("baby_name", baby_name).eq("status", "like").neq("user_name", current_user).execute()
-        return list(set([row["user_name"] for row in (res.data or [])]))
+        res = supabase.table("swipes").select("user_name, role").eq("room_code", room).eq("baby_name", baby_name).eq("status", "like").neq("user_name", current_user).execute()
+        return res.data or []
     except Exception:
         return []
 
@@ -229,7 +229,6 @@ def build_matches_df(matches_list, names_db):
     for m in matches_list:
         b_name = m["name"]
         info = db_dict.get(b_name, {})
-        # הוסר המין והקטגוריה לבקשתך
         rows.append({
             "שם": b_name,
             "משמעות": info.get("meaning", "אין פירוש"),
@@ -251,7 +250,7 @@ def matches_gender_filter(item_gender, selected_filter):
     return True
 
 # אתחול משתני סשן
-for key in ["room_code", "user_name", "user_role", "selected_gender", "selected_category", "is_admin", "view_mode", "match_alert"]:
+for key in ["room_code", "user_name", "user_role", "selected_gender", "selected_category", "is_admin", "view_mode", "match_alert", "perfect_match_alert"]:
     if key not in st.session_state:
         if key in ["room_code", "user_name", "user_role"]:
             st.session_state[key] = ""
@@ -491,13 +490,41 @@ elif st.session_state.view_mode == "swipe":
         
         st.subheader(f"✨ {display_title} ({st.session_state.selected_gender})")
 
-        # --- תצוגת פופ-אפ התאמה אם קיימת במשתני הסשן ---
-        if st.session_state.match_alert:
+        # --- תצוגת פופ-אפ התאמה מושלמת (אבא + אמא) ---
+        if st.session_state.perfect_match_alert:
+            pm = st.session_state.perfect_match_alert
+            # בחירת אנימציה (אימוג'י) לפי מין הילד
+            baby_emoji = "👦" if pm["gender"] == "זכר" else "👧" if pm["gender"] == "נקבה" else "👶"
+            
             st.balloons()
+            st.markdown(f"""
+            <div style="text-align: center; padding: 50px 20px; background: linear-gradient(135deg, #fdfbfb 0%, #ebedee 100%); border-radius: 20px; border: 3px solid #ff4b4b; box-shadow: 0 10px 20px rgba(0,0,0,0.1); margin-bottom: 30px;">
+                <h1 style="font-size: 38px; color: #ff4b4b; margin-bottom: 10px;">🎉 התאמה זוגית מושלמת! 🎉</h1>
+                <h2 style="font-size: 26px; color: #333;">אבא ואמא הסכימו על השם: <br><br><b style="font-size: 40px; color: #ff4b4b;">{pm['name']}</b></h2>
+                <div style="font-size: 110px; animation: bounce 1s infinite; margin: 30px 0;">{baby_emoji}</div>
+                <style>
+                    @keyframes bounce {{
+                        0%, 100% {{ transform: translateY(0); }}
+                        50% {{ transform: translateY(-30px); }}
+                    }}
+                </style>
+            </div>
+            """, unsafe_allow_html=True)
+            
+            # כפתור שמנקה את ההתראה וממשיך הלאה
+            if st.button("🚀 איזה יופי! המשך לשם הבא", use_container_width=True, type="primary"):
+                st.session_state.perfect_match_alert = None
+                st.rerun()
+                
+            st.stop() # עוצר את המשך טעינת המסך עד שלוחצים "המשך"
+            
+        # --- תצוגת התאמה רגילה (משפחה/אחרים) ---
+        elif st.session_state.match_alert:
             st.toast(st.session_state.match_alert, icon="💘")
             st.success(st.session_state.match_alert)
-            st.session_state.match_alert = None # איפוס לאחר תצוגה
+            st.session_state.match_alert = None # איפוס
         
+        # --- הצגת השם להחלקה ---
         if len(unswiped_names_in_cat) > 0:
             curr = unswiped_names_in_cat[0]
             st.markdown(f"""
@@ -514,12 +541,25 @@ elif st.session_state.view_mode == "swipe":
                     st.rerun()
             with col2:
                 if st.button("❤️ אהבתי", use_container_width=True):
-                    # בדיקת התאמה עם שאר בני המשפחה
-                    other_likes = get_who_liked_name(st.session_state.room_code, curr["name"], st.session_state.user_name)
+                    # בדיקת התאמות עם שאר בני המשפחה
+                    other_likes_data = get_who_liked_data(st.session_state.room_code, curr["name"], st.session_state.user_name)
                     save_swipe(st.session_state.room_code, st.session_state.user_name, st.session_state.user_role, curr["name"], display_title, "like")
                     
-                    if other_likes:
-                        st.session_state.match_alert = f"🎉 התאמה על השם '{curr['name']}' עם: {', '.join(other_likes)}!"
+                    other_roles = [x["role"] for x in other_likes_data]
+                    other_names = [x["user_name"] for x in other_likes_data]
+                    current_role = st.session_state.user_role
+                    
+                    is_perfect_match = False
+                    # בדיקה: האם זה אבא שאהב, ואמא כבר אהבה את השם בעבר (או להפך)?
+                    if current_role == "אבא" and "אמא" in other_roles:
+                        is_perfect_match = True
+                    elif current_role == "אמא" and "אבא" in other_roles:
+                        is_perfect_match = True
+                        
+                    if is_perfect_match:
+                        st.session_state.perfect_match_alert = {"name": curr["name"], "gender": curr["gender"]}
+                    elif other_names:
+                        st.session_state.match_alert = f"🎉 התאמה על השם '{curr['name']}' עם: {', '.join(set(other_names))}!"
                         
                     st.rerun()
                     
