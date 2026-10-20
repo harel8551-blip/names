@@ -88,7 +88,6 @@ def insert_names_batch(records):
         st.error(f"שגיאה בטעינת הנתונים: {e}")
         return False
 
-# --- משיכת מידע מרוכזת ---
 def fetch_room_swipes(room):
     all_data = []
     batch_size = 1000
@@ -309,7 +308,7 @@ else:
         st.session_state.notified_pm = current_pms
 
 # ==========================================
-# תפריט הניווט העליון (מותאם לרשת של 2x2)
+# תפריט הניווט העליון
 # ==========================================
 users_str = " | ".join([f"{u['user_name']} ({u['role']})" for u in room_users])
 st.markdown(f"<div style='text-align:center; color:#888; font-size: 13px; margin-bottom: 12px; background:#f8f9fa; padding: 5px; border-radius: 8px;'>👥 <b>מחוברים כרגע בחדר {st.session_state.room_code}:</b><br>{users_str}</div>", unsafe_allow_html=True)
@@ -558,7 +557,7 @@ elif st.session_state.view_mode == "swipe":
                             st.session_state.force_next_name = None
                             st.rerun()
 
-    # 3. מסך בחירת סידור (אקראי או א'-ב') אחרי בחירת קטגוריה
+    # 3. מסך בחירת סידור
     elif st.session_state.sort_order is None:
         cat_display_name = st.session_state.selected_category.replace("MAIN:", "") if st.session_state.selected_category.startswith("MAIN:") else st.session_state.selected_category
         st.title(f"איך נציג את השמות? ⚙️")
@@ -598,7 +597,6 @@ elif st.session_state.view_mode == "swipe":
 
         unswiped_names_in_cat = [item for item in matching_items if item["name"] not in user_swiped_names]
         
-        # החלת הסידור הנבחר
         unswiped_names_in_cat.sort(key=lambda x: x["name"])
         if st.session_state.sort_order == "random" and unswiped_names_in_cat:
             if "random_seed" not in st.session_state:
@@ -606,13 +604,14 @@ elif st.session_state.view_mode == "swipe":
             rng = random.Random(st.session_state.random_seed)
             rng.shuffle(unswiped_names_in_cat)
 
-        # --- כפיית השם שהתחרטנו עליו להיות הראשון שיוצג ---
+        # --- התיקון: כפיית השם שהתחרטנו עליו להופיע ראשון ---
         if st.session_state.force_next_name:
             for i, item in enumerate(unswiped_names_in_cat):
                 if item["name"] == st.session_state.force_next_name:
                     unswiped_names_in_cat.insert(0, unswiped_names_in_cat.pop(i))
                     break
-            st.session_state.force_next_name = None
+            # שימו לב: אנחנו לא מנקים כאן את force_next_name יותר!
+            # זה יימחק רק אחרי שתלחץ בפועל על אהבתי/פסילה.
 
         st.subheader(f"✨ {display_title}")
         
@@ -630,13 +629,15 @@ elif st.session_state.view_mode == "swipe":
                 if st.button("❌ לא מתאים", use_container_width=True):
                     save_swipe(st.session_state.room_code, st.session_state.user_name, st.session_state.user_role, curr["name"], display_title, "reject")
                     st.session_state.last_swiped_name = curr["name"]
-                    st.session_state.random_seed = random.randint(1, 100000) # מרענן אקראיות
+                    st.session_state.force_next_name = None # <--- הניקוי קורה רק פה!
+                    st.session_state.random_seed = random.randint(1, 100000)
                     st.rerun()
             with col2:
                 if st.button("👶 אהבתי!", use_container_width=True, type="primary"):
                     other_likes_data = [x for x in room_swipes if x["baby_name"] == curr["name"] and x["status"] == "like" and x["user_name"] != st.session_state.user_name]
                     save_swipe(st.session_state.room_code, st.session_state.user_name, st.session_state.user_role, curr["name"], display_title, "like")
                     st.session_state.last_swiped_name = curr["name"]
+                    st.session_state.force_next_name = None # <--- הניקוי קורה רק פה!
                     
                     other_roles = [x["role"] for x in other_likes_data]
                     other_names = [x["user_name"] for x in other_likes_data]
@@ -651,7 +652,7 @@ elif st.session_state.view_mode == "swipe":
                     elif other_names:
                         st.session_state.match_alert = f"🎉 התאמה על השם '{curr['name']}' עם: {', '.join(set(other_names))}!"
                         
-                    st.session_state.random_seed = random.randint(1, 100000) # מרענן אקראיות
+                    st.session_state.random_seed = random.randint(1, 100000)
                     st.rerun()
             
             # --- כפתור חזרה (Undo) לאחור ---
@@ -659,7 +660,7 @@ elif st.session_state.view_mode == "swipe":
                 st.markdown("<div style='margin-top: 15px;'>", unsafe_allow_html=True)
                 if st.button(f"↩️ התחרטתי! החזר את '{st.session_state.last_swiped_name}'", use_container_width=True):
                     undo_swipe(st.session_state.room_code, st.session_state.user_name, st.session_state.last_swiped_name)
-                    st.session_state.force_next_name = st.session_state.last_swiped_name # דורש שהשם יוצג מיד
+                    st.session_state.force_next_name = st.session_state.last_swiped_name
                     st.session_state.last_swiped_name = None
                     st.rerun()
                 st.markdown("</div>", unsafe_allow_html=True)
@@ -679,12 +680,11 @@ elif st.session_state.view_mode == "swipe":
         else:
             st.success("סיימת את כל השמות בקבוצה הזו!")
             
-            # כפתור חזרה עובד גם אם סיימנו את הרשימה
             if st.session_state.last_swiped_name:
                 st.markdown("<div style='margin-top: 15px;'>", unsafe_allow_html=True)
                 if st.button(f"↩️ התחרטתי! החזר את '{st.session_state.last_swiped_name}'", use_container_width=True):
                     undo_swipe(st.session_state.room_code, st.session_state.user_name, st.session_state.last_swiped_name)
-                    st.session_state.force_next_name = st.session_state.last_swiped_name # דורש שהשם יוצג מיד
+                    st.session_state.force_next_name = st.session_state.last_swiped_name
                     st.session_state.last_swiped_name = None
                     st.rerun()
                 st.markdown("</div>", unsafe_allow_html=True)
@@ -698,7 +698,6 @@ elif st.session_state.view_mode == "swipe":
 
 # ==========================================
 # הזרקת קוד JavaScript לצביעת כפתורי ההחלקה (ירוק לאהבתי, אדום לפסילה)
-# שים לב! זה חייב להיות בסוף הקובץ כדי שיצבע את הכפתורים ברגע שהם מופיעים על המסך
 # ==========================================
 components.html(
     """
@@ -707,13 +706,11 @@ components.html(
         var buttons = window.parent.document.querySelectorAll('div[data-testid="stButton"] button');
         buttons.forEach(function(btn) {
             var text = btn.innerText.trim();
-            // צובע בירוק רק את כפתורי ה"אהבתי" של ההחלקה והחיפוש
             if (text === '👶 אהבתי!' || text === '👶 החלף ל-אהבתי!') {
                 btn.style.backgroundColor = '#28a745';
                 btn.style.color = '#ffffff';
                 btn.style.borderColor = '#28a745';
             } 
-            // צובע באדום את כפתורי ה"לא מתאים" של ההחלקה והחיפוש
             else if (text === '❌ לא מתאים' || text === '❌ החלף ל-פסילה') {
                 btn.style.backgroundColor = '#dc3545';
                 btn.style.color = '#ffffff';
