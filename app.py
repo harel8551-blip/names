@@ -322,7 +322,7 @@ if not st.session_state.room_code or not st.session_state.user_name:
 
         if st.form_submit_button("היכנס לחדר", type="primary"):
             if room and user:
-                if role in ["אבא", "אמא"] and parent_pwd != "8551":
+                if role in ["אבא", "אמא"] and parent_pwd != "הראלהמלך":
                     st.error("❌ סיסמה שגויה לתפקיד אבא/אמא! אנא הזן את הסיסמה הנכונה.")
                 else:
                     success, msg = check_and_register_user(room, user, role)
@@ -356,42 +356,45 @@ if not NAMES_DB:
     st.stop()
 
 # ==========================================
-# משיכת נתונים מרוכזת ומנגנון התראות גלובלי
+# משיכת נתונים מרוכזת ומנגנון התראות (רק לאבא ואמא!)
 # ==========================================
 room_swipes = fetch_room_swipes(st.session_state.room_code)
 room_users = get_room_users(st.session_state.room_code)
 parent_matches, family_matches = get_matches_local(room_swipes)
 
-current_pms = set(pm["name"] for pm in parent_matches)
-current_fms = set(fm["name"] for fm in family_matches)
+is_parent = st.session_state.user_role in ["אבא", "אמא"]
 
-if "notified_pms" not in st.session_state:
-    st.session_state.notified_pms = current_pms.copy()
-if "notified_fms" not in st.session_state:
-    st.session_state.notified_fms = current_fms.copy()
+if is_parent:
+    current_pms = set(pm["name"] for pm in parent_matches)
+    current_fms = set(fm["name"] for fm in family_matches)
 
-new_pms = current_pms - st.session_state.notified_pms
-new_fms = current_fms - st.session_state.notified_fms
+    if "notified_pms" not in st.session_state:
+        st.session_state.notified_pms = current_pms.copy()
+    if "notified_fms" not in st.session_state:
+        st.session_state.notified_fms = current_fms.copy()
 
-if new_pms and not st.session_state.perfect_match_alert:
-    pm_name = list(new_pms)[0]
-    gender = "יוניסקס"
-    for item in NAMES_DB:
-        if item["name"] == pm_name:
-            gender = item.get("gender", "יוניסקס")
-            break
-    st.session_state.perfect_match_alert = {"name": pm_name, "gender": gender}
-    st.session_state.notified_pms.add(pm_name)
+    new_pms = current_pms - st.session_state.notified_pms
+    new_fms = current_fms - st.session_state.notified_fms
 
-elif new_fms and not st.session_state.match_alert:
-    fm_name = list(new_fms)[0]
-    users_str = ""
-    for fm in family_matches:
-        if fm["name"] == fm_name:
-            users_str = fm["users"]
-            break
-    st.session_state.match_alert = f"🎉 התאמה משפחתית על השם '{fm_name}' עם: {users_str}!"
-    st.session_state.notified_fms.add(fm_name)
+    if new_pms and not st.session_state.perfect_match_alert:
+        pm_name = list(new_pms)[0]
+        gender = "יוניסקס"
+        for item in NAMES_DB:
+            if item["name"] == pm_name:
+                gender = item.get("gender", "יוניסקס")
+                break
+        st.session_state.perfect_match_alert = {"name": pm_name, "gender": gender}
+        st.session_state.notified_pms.add(pm_name)
+
+    elif new_fms and not st.session_state.match_alert:
+        fm_name = list(new_fms)[0]
+        users_str = ""
+        for fm in family_matches:
+            if fm["name"] == fm_name:
+                users_str = fm["users"]
+                break
+        st.session_state.match_alert = f"🎉 התאמה משפחתית על השם '{fm_name}' עם: {users_str}!"
+        st.session_state.notified_fms.add(fm_name)
 
 
 # ==========================================
@@ -399,8 +402,6 @@ elif new_fms and not st.session_state.match_alert:
 # ==========================================
 users_str = " | ".join([f"{u['user_name']} ({u['role']})" for u in room_users])
 st.markdown(f"<div style='text-align:center; color:#888; font-size: 13px; margin-bottom: 12px; background:#f8f9fa; padding: 5px; border-radius: 8px;'>👥 <b>מחוברים כרגע בחדר {st.session_state.room_code}:</b><br>{users_str}</div>", unsafe_allow_html=True)
-
-is_parent = st.session_state.user_role in ["אבא", "אמא"]
 
 if is_parent:
     menu_col1, menu_col2 = st.columns(2)
@@ -434,7 +435,6 @@ if is_parent:
             st.session_state.force_next_name = None
             st.rerun()
 else:
-    # למשתמשים שאינם הורים - 3 כפתורים בלבד (ללא התאמות)
     menu_col1, menu_col2, menu_col3 = st.columns(3)
     with menu_col1:
         if st.button("📂 קטגוריות", use_container_width=True):
@@ -461,29 +461,30 @@ else:
 st.markdown("---")
 
 # ==========================================
-# תצוגת פופ-אפ התאמות (גלובלי - עובד בכל מסך)
+# תצוגת פופ-אפ התאמות (רק להורים!)
 # ==========================================
-if st.session_state.perfect_match_alert:
-    pm = st.session_state.perfect_match_alert
-    baby_emoji = "👦" if pm["gender"] == "זכר" else "👧" if pm["gender"] == "נקבה" else "👶"
-    st.balloons()
-    st.markdown(f"""
-    <div style="text-align: center; padding: 50px 20px; background: linear-gradient(135deg, #fdfbfb 0%, #ebedee 100%); border-radius: 20px; border: 3px solid #ff4b4b; box-shadow: 0 10px 20px rgba(0,0,0,0.1); margin-bottom: 30px; margin-top: 20px;">
-        <h1 style="font-size: 38px; color: #ff4b4b; margin-bottom: 10px;">🎉 התאמה זוגית מושלמת! 🎉</h1>
-        <h2 style="font-size: 26px; color: #333;">אבא ואמא הסכימו על השם: <br><br><b style="font-size: 40px; color: #ff4b4b;">{pm['name']}</b></h2>
-        <div style="font-size: 110px; animation: bounce 1s infinite; margin: 30px 0;">{baby_emoji}</div>
-        <style>@keyframes bounce {{ 0%, 100% {{ transform: translateY(0); }} 50% {{ transform: translateY(-30px); }} }}</style>
-    </div>
-    """, unsafe_allow_html=True)
-    if st.button("🚀 איזה יופי! המשך הלאה", use_container_width=True, type="primary"):
-        st.session_state.perfect_match_alert = None
-        st.rerun()
-    st.stop()
+if is_parent:
+    if st.session_state.perfect_match_alert:
+        pm = st.session_state.perfect_match_alert
+        baby_emoji = "👦" if pm["gender"] == "זכר" else "👧" if pm["gender"] == "נקבה" else "👶"
+        st.balloons()
+        st.markdown(f"""
+        <div style="text-align: center; padding: 50px 20px; background: linear-gradient(135deg, #fdfbfb 0%, #ebedee 100%); border-radius: 20px; border: 3px solid #ff4b4b; box-shadow: 0 10px 20px rgba(0,0,0,0.1); margin-bottom: 30px; margin-top: 20px;">
+            <h1 style="font-size: 38px; color: #ff4b4b; margin-bottom: 10px;">🎉 התאמה זוגית מושלמת! 🎉</h1>
+            <h2 style="font-size: 26px; color: #333;">אבא ואמא הסכימו על השם: <br><br><b style="font-size: 40px; color: #ff4b4b;">{pm['name']}</b></h2>
+            <div style="font-size: 110px; animation: bounce 1s infinite; margin: 30px 0;">{baby_emoji}</div>
+            <style>@keyframes bounce {{ 0%, 100% {{ transform: translateY(0); }} 50% {{ transform: translateY(-30px); }} }}</style>
+        </div>
+        """, unsafe_allow_html=True)
+        if st.button("🚀 איזה יופי! המשך הלאה", use_container_width=True, type="primary"):
+            st.session_state.perfect_match_alert = None
+            st.rerun()
+        st.stop()
 
-elif st.session_state.match_alert:
-    st.toast(st.session_state.match_alert, icon="💘")
-    st.success(st.session_state.match_alert)
-    st.session_state.match_alert = None
+    elif st.session_state.match_alert:
+        st.toast(st.session_state.match_alert, icon="💘")
+        st.success(st.session_state.match_alert)
+        st.session_state.match_alert = None
 
 
 # --- ניתוב למסכים ---
