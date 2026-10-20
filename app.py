@@ -34,6 +34,30 @@ def insert_names_batch(records):
         st.error(f"שגיאה בטעינת הנתונים: {e}")
         return False
 
+def check_and_register_user(room, user, role):
+    """בודק אם התפקיד פנוי, ואם כן - רושם את המשתמש לחדר"""
+    try:
+        # שליפת כל המשתמשים בחדר
+        res = supabase.table("room_users").select("user_name, role").eq("room_code", room).execute()
+        users_in_room = res.data or []
+        
+        # בדיקת הגבלות תפקידים (אבא/אמא בלבד)
+        if role in ["אבא", "אמא"]:
+            for u in users_in_room:
+                if u["role"] == role and u["user_name"] != user:
+                    return False, f"התפקיד '{role}' כבר תפוס על ידי '{u['user_name']}' בחדר הזה."
+        
+        # אם הכל תקין, רושמים או מעדכנים את המשתמש
+        supabase.table("room_users").upsert({
+            "room_code": room,
+            "user_name": user,
+            "role": role
+        }).execute()
+        
+        return True, ""
+    except Exception as e:
+        return False, f"שגיאת מסד נתונים (וודא שיצרת את טבלת room_users): {e}"
+
 def save_swipe(room, user, role, baby_name, category):
     try:
         supabase.table("swipes").upsert({
@@ -51,14 +75,12 @@ def get_matches(room):
         res = supabase.table("swipes").select("baby_name, user_name, role").eq("room_code", room).execute()
         data = res.data or []
         
-        # קיבוץ לפי שם התינוק
         name_likes = {}
         for row in data:
             b_name = row["baby_name"]
             if b_name not in name_likes:
                 name_likes[b_name] = {"users": [], "roles": []}
             
-            # מניעת כפילויות אם אותו משתמש החליק פעמיים
             if row["user_name"] not in name_likes[b_name]["users"]:
                 name_likes[b_name]["users"].append(row["user_name"])
                 name_likes[b_name]["roles"].append(row.get("role") or "אחר")
@@ -74,13 +96,10 @@ def get_matches(room):
             has_ima = "אמא" in roles
             has_family = any(r not in ["אבא", "אמא"] for r in roles)
             
-            # חיבור שמות בלבד (בלי תפקידים)
             users_str = ", ".join(users)
             
-            # אם אבא ואמא הסכימו - זו התאמה זוגית
             if has_aba and has_ima:
                 parent_matches.append({"name": b_name, "users": users_str})
-            # אם אחד ההורים + משפחה
             elif (has_aba or has_ima) and has_family:
                 family_matches.append({"name": b_name, "users": users_str})
                 
@@ -88,11 +107,8 @@ def get_matches(room):
     except Exception as e:
         return [], []
 
-# פונקציית עזר לבניית טבלת נתונים יפה למסכי ההתאמות
 def build_matches_df(matches_list, names_db):
-    # יצירת מילון מהיר לחיפוש נתוני השם
     db_dict = {item["name"]: item for item in names_db}
-    
     rows = []
     for m in matches_list:
         b_name = m["name"]
@@ -107,7 +123,6 @@ def build_matches_df(matches_list, names_db):
 
 
 # --- אתחול משתני סשן ---
-# הוספנו את view_mode כדי לדעת איזה מסך להציג (החלקה / טבלת זוגיות / טבלת משפחה)
 for key in ["room_code", "user_name", "user_role", "selected_category", "current_index", "is_admin", "view_mode"]:
     if key not in st.session_state:
         if key in ["room_code", "user_name", "user_role"]:
@@ -184,10 +199,15 @@ if not st.session_state.room_code or not st.session_state.user_name:
         
         if st.form_submit_button("היכנס וסנן שמות"):
             if room and user:
-                st.session_state.room_code = room
-                st.session_state.user_name = user
-                st.session_state.user_role = role
-                st.rerun()
+                # בדיקה האם התפקיד פנוי לפני שמאפשרים כניסה
+                success, msg = check_and_register_user(room, user, role)
+                if success:
+                    st.session_state.room_code = room
+                    st.session_state.user_name = user
+                    st.session_state.user_role = role
+                    st.rerun()
+                else:
+                    st.error(msg)
             else:
                 st.warning("נא למלא חדר ושם.")
     st.stop()
@@ -209,41 +229,35 @@ if st.sidebar.button("👨‍👩‍👧‍👦 אהוב על המשפחה", use
 
 st.sidebar.markdown("---")
 
-if st.sidebar.button("🏠 חזרה להחלקה על שמות", use_container_width=True):
+if st.sidebar.button("🏠 חזרה להחלקה", use_container_width=True):
     st.session_state.view_mode = "swipe"
     st.session_state.selected_category = None
     st.session_state.current_index = 0
     st.rerun()
 
-# משיכת מאגר השמות הכללי לשימוש בכל המסכים
 NAMES_DB = fetch_all_names()
 if not NAMES_DB:
     st.warning("המאגר ריק. היכנס לפאנל המנהל בסרגל הצד כדי להוסיף שמות.")
     st.stop()
 
 # ==========================================
-# ראוטינג (ניתוב) לפי מה שהמשתמש בחר בסרגל
+# ראוטינג (ניתוב)
 # ==========================================
 
-# 1. מסך התאמות זוגיות (טבלה)
 if st.session_state.view_mode == "parent_matches":
     st.title("💘 התאמה זוגית מושלמת")
     st.write("כאן מופיעים כל השמות שגם אבא וגם אמא הסכימו עליהם.")
-    
     p_matches, _ = get_matches(st.session_state.room_code)
     
     if p_matches:
         df = build_matches_df(p_matches, NAMES_DB)
-        # הצגת הטבלה המלאה על המסך
         st.dataframe(df, use_container_width=True, hide_index=True)
     else:
-        st.info("עדיין אין הסכמה זוגית על אף שם. המשיכו להחליק!")
+        st.info("עדיין אין הסכמה זוגית על אף שם.")
 
-# 2. מסך התאמות משפחתיות (טבלה)
 elif st.session_state.view_mode == "family_matches":
     st.title("👨‍👩‍👧‍👦 אהוב על המשפחה")
     st.write("שמות שלפחות אחד מההורים אהב, ועוד מישהו מהמשפחה תמך בהם.")
-    
     _, f_matches = get_matches(st.session_state.room_code)
     
     if f_matches:
@@ -252,7 +266,6 @@ elif st.session_state.view_mode == "family_matches":
     else:
         st.info("עדיין אין שמות עם תמיכה משפחתית משולבת.")
 
-# 3. מסך ההחלקה הראשי (Tinder-Style)
 elif st.session_state.view_mode == "swipe":
     if st.session_state.selected_category is None:
         st.title("בחר קטגוריה 📂")
