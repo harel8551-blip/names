@@ -5,7 +5,7 @@ import io
 
 st.set_page_config(page_title="Baby Matcher 👶", page_icon="👶", layout="centered")
 
-# --- הגדרות עיצוב לשפה העברית (RTL) ---
+# --- הגדרות עיצוב לשפה העברית (RTL) וטבלאות מותאמות ---
 st.markdown(
     """
     <style>
@@ -32,15 +32,43 @@ st.markdown(
         left: 1rem !important;
     }
     
-    /* יישור התראות (Success/Error) לימין */
+    /* יישור התראות לימין */
     [data-testid="stAlert"] {
         direction: rtl;
         text-align: right;
     }
     
-    /* יישור רשימות נפתחות (Selectbox) לימין */
+    /* יישור רשימות נפתחות לימין */
     .stSelectbox div[data-baseweb="select"] {
         text-align: right;
+    }
+    
+    /* --- עיצוב מושלם לטבלאות בעברית --- */
+    .rtl-table {
+        width: 100%;
+        direction: rtl;
+        text-align: right;
+        border-collapse: collapse;
+        font-family: sans-serif;
+        margin-top: 10px;
+        margin-bottom: 20px;
+        background-color: white;
+    }
+    .rtl-table th, .rtl-table td {
+        border: 1px solid #e0e0e0;
+        padding: 12px;
+        text-align: right !important;
+    }
+    .rtl-table th {
+        background-color: #f8f9fa;
+        font-weight: bold;
+        color: #333;
+    }
+    .rtl-table tr:nth-child(even) {
+        background-color: #fafafa;
+    }
+    .rtl-table tr:hover {
+        background-color: #f1f1f1;
     }
     </style>
     """,
@@ -61,7 +89,6 @@ def get_supabase() -> Client:
 
 supabase = get_supabase()
 
-# משיכת כל השמות (עוקף את מגבלת ה-1000 של Supabase)
 def fetch_all_names():
     all_data = []
     batch_size = 1000
@@ -279,7 +306,9 @@ if st.session_state.is_admin:
                 st.success("כל השמות נמחקו בהצלחה! כעת ניתן לטעון רשימה חדשה.")
                 st.rerun()
         if all_names:
-            st.dataframe(pd.DataFrame(all_names), use_container_width=True)
+            # שימוש בטבלת HTML יפה במקום DataFrame רגיל
+            df_all = pd.DataFrame(all_names)
+            st.markdown(df_all.to_html(index=False, classes="rtl-table"), unsafe_allow_html=True)
     st.stop()
 
 # מסך התחברות לחדר
@@ -346,7 +375,8 @@ if st.session_state.view_mode == "parent_matches":
     p_matches, _ = get_matches(st.session_state.room_code)
     if p_matches:
         df = build_matches_df(p_matches, NAMES_DB)
-        st.dataframe(df, use_container_width=True, hide_index=True)
+        # שימוש בטבלת HTML יפה ומיושרת לימין
+        st.markdown(df.to_html(index=False, classes="rtl-table"), unsafe_allow_html=True)
     else:
         st.info("עדיין אין הסכמה זוגית על אף שם.")
 
@@ -356,12 +386,13 @@ elif st.session_state.view_mode == "family_matches":
     _, f_matches = get_matches(st.session_state.room_code)
     if f_matches:
         df = build_matches_df(f_matches, NAMES_DB)
-        st.dataframe(df, use_container_width=True, hide_index=True)
+        # שימוש בטבלת HTML יפה ומיושרת לימין
+        st.markdown(df.to_html(index=False, classes="rtl-table"), unsafe_allow_html=True)
     else:
         st.info("עדיין אין שמות עם תמיכה משפחתית משולבת.")
 
 elif st.session_state.view_mode == "swipe":
-    # שלב 1: בחירת בן / בת לפני הכל!
+    # שלב 1: בחירת בן / בת לפני הכל
     if st.session_state.selected_gender is None:
         st.title("למי מחפשים שם? 👶")
         st.write("בחר כדי שנסנן עבורך את השמות והקטגוריות הרלוונטיים:")
