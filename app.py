@@ -161,9 +161,13 @@ if st.session_state.is_admin:
                     if {"name", "gender", "category"}.issubset(set(df.columns)):
                         if "meaning" not in df.columns:
                             df["meaning"] = ""
+                        
+                        # הסרת כפילויות מדויקות של (שם + קטגוריה) כדי למנוע שגיאת פוסטגרס
+                        df = df.drop_duplicates(subset=["name", "category"])
+                        
                         records = df[["name", "gender", "category", "meaning"]].to_dict(orient="records")
                         if insert_names_batch(records):
-                            st.success(f"{len(records)} שמות נטענו בהצלחה!")
+                            st.success(f"{len(records)} שמות ייחודיים נטענו בהצלחה!")
                     else:
                         st.error("חסרות עמודות חובה (name, gender, category).")
                 except Exception as e:
