@@ -18,7 +18,7 @@ def get_supabase() -> Client:
 
 supabase = get_supabase()
 
-# --- פונקציות מסד נתונים ---
+# --- פונקציות עזר ומסד נתונים ---
 def fetch_all_names():
     try:
         res = supabase.table("names").select("name, gender, category, meaning").execute()
@@ -35,44 +35,44 @@ def insert_names_batch(records):
         return False
 
 def check_and_register_user(room, user, role):
-    """בודק אם התפקיד פנוי, ואם כן - רושם את המשתמש לחדר"""
     try:
-        # שליפת כל המשתמשים בחדר
         res = supabase.table("room_users").select("user_name, role").eq("room_code", room).execute()
         users_in_room = res.data or []
-        
-        # בדיקת הגבלות תפקידים (אבא/אמא בלבד)
         if role in ["אבא", "אמא"]:
             for u in users_in_room:
                 if u["role"] == role and u["user_name"] != user:
                     return False, f"התפקיד '{role}' כבר תפוס על ידי '{u['user_name']}' בחדר הזה."
-        
-        # אם הכל תקין, רושמים או מעדכנים את המשתמש
-        supabase.table("room_users").upsert({
-            "room_code": room,
-            "user_name": user,
-            "role": role
-        }).execute()
-        
+        supabase.table("room_users").upsert({"room_code": room, "user_name": user, "role": role}).execute()
         return True, ""
     except Exception as e:
-        return False, f"שגיאת מסד נתונים (וודא שיצרת את טבלת room_users): {e}"
+        return False, f"שגיאת מסד נתונים: {e}"
 
-def save_swipe(room, user, role, baby_name, category):
+def save_swipe(room, user, role, baby_name, category, status):
+    """ שומר את ההחלקה - לייק או פסילה """
     try:
         supabase.table("swipes").upsert({
             "room_code": room,
             "user_name": user,
             "role": role,
             "baby_name": baby_name,
-            "category": category
+            "category": category,
+            "status": status
         }).execute()
     except Exception:
         pass
 
+def get_user_swiped_names(room, user):
+    """ שולף את כל השמות שהמשתמש כבר סנן (כדי להעלים אותם מכל הקטגוריות) """
+    try:
+        res = supabase.table("swipes").select("baby_name").eq("room_code", room).eq("user_name", user).execute()
+        return set([row["baby_name"] for row in (res.data or [])])
+    except Exception:
+        return set()
+
 def get_matches(room):
     try:
-        res = supabase.table("swipes").select("baby_name, user_name, role").eq("room_code", room).execute()
+        # שולפים רק שמות שקיבלו "like" (לייק)
+        res = supabase.table("swipes").select("baby_name, user_name, role").eq("room_code", room).eq("status", "like").execute()
         data = res.data or []
         
         name_likes = {}
@@ -80,7 +80,6 @@ def get_matches(room):
             b_name = row["baby_name"]
             if b_name not in name_likes:
                 name_likes[b_name] = {"users": [], "roles": []}
-            
             if row["user_name"] not in name_likes[b_name]["users"]:
                 name_likes[b_name]["users"].append(row["user_name"])
                 name_likes[b_name]["roles"].append(row.get("role") or "אחר")
@@ -95,7 +94,6 @@ def get_matches(room):
             has_aba = "אבא" in roles
             has_ima = "אמא" in roles
             has_family = any(r not in ["אבא", "אמא"] for r in roles)
-            
             users_str = ", ".join(users)
             
             if has_aba and has_ima:
@@ -121,16 +119,19 @@ def build_matches_df(matches_list, names_db):
         })
     return pd.DataFrame(rows)
 
+def get_item_categories(item):
+    """ מפרק עמודת קטגוריות (למקרה שיש כמה קטגוריות מופרדות בפסיק) """
+    c_str = str(item.get("category", ""))
+    return [c.strip() for c in c_str.split(",") if c.strip()]
+
 
 # --- אתחול משתני סשן ---
-for key in ["room_code", "user_name", "user_role", "selected_category", "current_index", "is_admin", "view_mode"]:
+for key in ["room_code", "user_name", "user_role", "selected_category", "is_admin", "view_mode"]:
     if key not in st.session_state:
         if key in ["room_code", "user_name", "user_role"]:
             st.session_state[key] = ""
         elif key == "is_admin":
             st.session_state[key] = False
-        elif key == "current_index":
-            st.session_state[key] = 0
         elif key == "view_mode":
             st.session_state[key] = "swipe"
         else:
@@ -176,7 +177,7 @@ if st.session_state.is_admin:
         with st.form("add_name"):
             n_name = st.text_input("שם")
             n_gen = st.selectbox("מין", ["זכר", "נקבה", "יוניסקס"])
-            n_cat = st.text_input("קטגוריה")
+            n_cat = st.text_input("קטגוריה (ניתן להפריד בפסיקים)")
             n_mean = st.text_area("משמעות")
             if st.form_submit_button("הוסף") and n_name and n_cat:
                 if insert_names_batch([{"name": n_name, "gender": n_gen, "category": n_cat, "meaning": n_mean}]):
@@ -199,7 +200,6 @@ if not st.session_state.room_code or not st.session_state.user_name:
         
         if st.form_submit_button("היכנס וסנן שמות"):
             if room and user:
-                # בדיקה האם התפקיד פנוי לפני שמאפשרים כניסה
                 success, msg = check_and_register_user(room, user, role)
                 if success:
                     st.session_state.room_code = room
@@ -232,7 +232,6 @@ st.sidebar.markdown("---")
 if st.sidebar.button("🏠 חזרה להחלקה", use_container_width=True):
     st.session_state.view_mode = "swipe"
     st.session_state.selected_category = None
-    st.session_state.current_index = 0
     st.rerun()
 
 NAMES_DB = fetch_all_names()
@@ -267,22 +266,48 @@ elif st.session_state.view_mode == "family_matches":
         st.info("עדיין אין שמות עם תמיכה משפחתית משולבת.")
 
 elif st.session_state.view_mode == "swipe":
+    # 1. שולפים את כל השמות שהמשתמש כבר ראה
+    user_swiped_names = get_user_swiped_names(st.session_state.room_code, st.session_state.user_name)
+    
     if st.session_state.selected_category is None:
         st.title("בחר קטגוריה 📂")
-        categories = sorted(list(set([item["category"] for item in NAMES_DB])))
+        
+        # בניית רשימת כל הקטגוריות הקיימות
+        all_categories = set()
+        for item in NAMES_DB:
+            all_categories.update(get_item_categories(item))
+            
+        categories = sorted(list(all_categories))
+        
         for cat in categories:
-            count = sum(1 for item in NAMES_DB if item["category"] == cat)
-            if st.button(f"{cat} ({count} שמות)", use_container_width=True):
-                st.session_state.selected_category = cat
-                st.session_state.current_index = 0
-                st.rerun()
+            # ספירת השמות *שטרם נסרקו* בקטגוריה הזו
+            remaining_names = [
+                item for item in NAMES_DB 
+                if cat in get_item_categories(item) and item["name"] not in user_swiped_names
+            ]
+            count = len(remaining_names)
+            
+            # אם נשארו שמות בקטגוריה, נציג את הכפתור
+            if count > 0:
+                if st.button(f"{cat} ({count} שמות נותרו)", use_container_width=True):
+                    st.session_state.selected_category = cat
+                    st.rerun()
+            
     else:
         cat = st.session_state.selected_category
-        names_in_cat = [item for item in NAMES_DB if item["category"] == cat]
+        
+        # שליפת השמות הרלוונטיים לקטגוריה, בניכוי אלו שכבר סוננו
+        unswiped_names_in_cat = [
+            item for item in NAMES_DB 
+            if cat in get_item_categories(item) and item["name"] not in user_swiped_names
+        ]
+        
         st.title(f"✨ {cat}")
         
-        if st.session_state.current_index < len(names_in_cat):
-            curr = names_in_cat[st.session_state.current_index]
+        if len(unswiped_names_in_cat) > 0:
+            # מציגים תמיד את השם הראשון ברשימה המסוננת
+            curr = unswiped_names_in_cat[0]
+            
             st.markdown(f"""
             <div style="padding: 30px; border-radius: 15px; border: 2px solid #ff4b4b; text-align: center; background-color: #fafafa; margin-bottom: 20px;">
                 <h1 style="color: #ff4b4b; font-size: 48px;">{curr['name']}</h1>
@@ -293,19 +318,21 @@ elif st.session_state.view_mode == "swipe":
             
             col1, col2 = st.columns(2)
             with col1:
-                if st.button("❌ פחות בכיוון", use_container_width=True):
-                    st.session_state.current_index += 1
+                if st.button("❌ לא מתאים", use_container_width=True):
+                    save_swipe(st.session_state.room_code, st.session_state.user_name, st.session_state.user_role, curr["name"], cat, "reject")
                     st.rerun()
             with col2:
                 if st.button("❤️ אהבתי", use_container_width=True):
-                    save_swipe(st.session_state.room_code, st.session_state.user_name, st.session_state.user_role, curr["name"], cat)
-                    st.session_state.current_index += 1
+                    save_swipe(st.session_state.room_code, st.session_state.user_name, st.session_state.user_role, curr["name"], cat, "like")
                     st.rerun()
                     
-            st.progress((st.session_state.current_index + 1) / len(names_in_cat))
+            # מד התקדמות מחושב מחדש
+            total_in_cat = sum(1 for item in NAMES_DB if cat in get_item_categories(item))
+            progress = (total_in_cat - len(unswiped_names_in_cat)) / total_in_cat if total_in_cat > 0 else 1.0
+            st.progress(progress)
+            
         else:
             st.success("סיימת את הקטגוריה הזו!")
-            if st.button("בחר קטגוריה אחרת"):
+            if st.button("חזרה לבחירת קטגוריות"):
                 st.session_state.selected_category = None
-                st.session_state.current_index = 0
                 st.rerun()
