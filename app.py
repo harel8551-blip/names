@@ -144,6 +144,12 @@ def remove_like(room, user, baby_name):
     except Exception:
         pass
 
+def undo_swipe(room, user, baby_name):
+    try:
+        supabase.table("swipes").delete().eq("room_code", room).eq("user_name", user).eq("baby_name", baby_name).execute()
+    except Exception:
+        pass
+
 def get_user_swiped_names_local(room_swipes, user):
     return set([row["baby_name"] for row in room_swipes if row["user_name"] == user])
 
@@ -194,7 +200,7 @@ def matches_gender_filter(item_gender, selected_filter):
     return True
 
 # --- אתחול משתני סשן ---
-for key in ["room_code", "user_name", "user_role", "selected_gender", "selected_category", "is_admin", "view_mode", "match_alert", "perfect_match_alert", "sort_order", "random_seed", "search_query"]:
+for key in ["room_code", "user_name", "user_role", "selected_gender", "selected_category", "is_admin", "view_mode", "match_alert", "perfect_match_alert", "sort_order", "random_seed", "search_query", "last_swiped_name"]:
     if key not in st.session_state:
         if key == "is_admin":
             st.session_state[key] = False
@@ -314,21 +320,25 @@ with menu_col1:
         st.session_state.view_mode = "swipe"
         st.session_state.selected_category = None
         st.session_state.sort_order = None
+        st.session_state.last_swiped_name = None # איפוס חזרה
         st.rerun()
 with menu_col2:
     if st.button("🔍 חיפוש חופשי", use_container_width=True):
         st.session_state.view_mode = "search"
-        st.session_state.search_query = "" # מאפס את שורת החיפוש בכניסה
+        st.session_state.search_query = "" 
+        st.session_state.last_swiped_name = None
         st.rerun()
 
 menu_col3, menu_col4 = st.columns(2)
 with menu_col3:
     if st.button("👑 התאמות", use_container_width=True):
         st.session_state.view_mode = "matches"
+        st.session_state.last_swiped_name = None
         st.rerun()
 with menu_col4:
     if st.button("👶 אהבתי", use_container_width=True):
         st.session_state.view_mode = "my_likes"
+        st.session_state.last_swiped_name = None
         st.rerun()
 st.markdown("---")
 
@@ -467,14 +477,17 @@ elif st.session_state.view_mode == "swipe":
         with col_m:
             if st.button("👦 בן\n\n(כולל יוניסקס)", use_container_width=True):
                 st.session_state.selected_gender = "בן"
+                st.session_state.last_swiped_name = None
                 st.rerun()
         with col_f:
             if st.button("👧 בת\n\n(כולל יוניסקס)", use_container_width=True):
                 st.session_state.selected_gender = "בת"
+                st.session_state.last_swiped_name = None
                 st.rerun()
         with col_u:
             if st.button("✨ יוניסקס", use_container_width=True):
                 st.session_state.selected_gender = "יוניסקס"
+                st.session_state.last_swiped_name = None
                 st.rerun()
         st.stop()
 
@@ -489,12 +502,14 @@ elif st.session_state.view_mode == "swipe":
             st.session_state.selected_category = "GLOBAL_RANDOM"
             st.session_state.sort_order = "random"
             st.session_state.random_seed = random.randint(1, 100000)
+            st.session_state.last_swiped_name = None
             st.rerun()
             
         st.markdown("---")
         if st.button("🔄 חזור ובחר מין אחר", use_container_width=True):
             st.session_state.selected_gender = None
             st.session_state.sort_order = None
+            st.session_state.last_swiped_name = None
             st.rerun()
             
         cat_tree = {}
@@ -520,6 +535,7 @@ elif st.session_state.view_mode == "swipe":
                         if st.button(f"🌟 כל השמות ב-{main_c} ({unique_in_main})", key=f"ALL_{main_c}", use_container_width=True):
                             st.session_state.selected_category = f"MAIN:{main_c}"
                             st.session_state.sort_order = None
+                            st.session_state.last_swiped_name = None
                             st.rerun()
                         st.markdown("---")
                     
@@ -528,6 +544,7 @@ elif st.session_state.view_mode == "swipe":
                         if st.button(f"🔹 {display_sub} ({cnt} שמות)", key=f"SUB_{full_cat}", use_container_width=True):
                             st.session_state.selected_category = full_cat
                             st.session_state.sort_order = None
+                            st.session_state.last_swiped_name = None
                             st.rerun()
 
     # 3. מסך בחירת סידור (אקראי או א'-ב') אחרי בחירת קטגוריה
@@ -593,12 +610,14 @@ elif st.session_state.view_mode == "swipe":
             with col1:
                 if st.button("❌ לא מתאים", use_container_width=True):
                     save_swipe(st.session_state.room_code, st.session_state.user_name, st.session_state.user_role, curr["name"], display_title, "reject")
-                    st.session_state.random_seed = random.randint(1, 100000) # מרענן את האקראיות על כל לחיצה
+                    st.session_state.last_swiped_name = curr["name"]
+                    st.session_state.random_seed = random.randint(1, 100000) # מרענן אקראיות
                     st.rerun()
             with col2:
                 if st.button("👶 אהבתי!", use_container_width=True, type="primary"):
                     other_likes_data = [x for x in room_swipes if x["baby_name"] == curr["name"] and x["status"] == "like" and x["user_name"] != st.session_state.user_name]
                     save_swipe(st.session_state.room_code, st.session_state.user_name, st.session_state.user_role, curr["name"], display_title, "like")
+                    st.session_state.last_swiped_name = curr["name"]
                     
                     other_roles = [x["role"] for x in other_likes_data]
                     other_names = [x["user_name"] for x in other_likes_data]
@@ -613,9 +632,18 @@ elif st.session_state.view_mode == "swipe":
                     elif other_names:
                         st.session_state.match_alert = f"🎉 התאמה על השם '{curr['name']}' עם: {', '.join(set(other_names))}!"
                         
-                    st.session_state.random_seed = random.randint(1, 100000) # מרענן את האקראיות על כל לחיצה
+                    st.session_state.random_seed = random.randint(1, 100000) # מרענן אקראיות
                     st.rerun()
-                    
+            
+            # --- כפתור חזרה (Undo) לאחור ---
+            if st.session_state.last_swiped_name:
+                st.markdown("<div style='margin-top: 15px;'>", unsafe_allow_html=True)
+                if st.button(f"↩️ התחרטתי! החזר את '{st.session_state.last_swiped_name}'", use_container_width=True):
+                    undo_swipe(st.session_state.room_code, st.session_state.user_name, st.session_state.last_swiped_name)
+                    st.session_state.last_swiped_name = None
+                    st.rerun()
+                st.markdown("</div>", unsafe_allow_html=True)
+                
             total_in_cat = len(matching_items)
             progress = (total_in_cat - len(unswiped_names_in_cat)) / total_in_cat if total_in_cat > 0 else 1.0
             st.progress(progress)
@@ -625,12 +653,24 @@ elif st.session_state.view_mode == "swipe":
             if st.button("⬅️ עצור וחזור לקטגוריות", use_container_width=True):
                 st.session_state.selected_category = None
                 st.session_state.sort_order = None
+                st.session_state.last_swiped_name = None
                 st.rerun()
         else:
             st.success("סיימת את כל השמות בקבוצה הזו!")
+            
+            # כפתור חזרה עובד גם אם סיימנו את הרשימה ובדיוק התחרטנו על האחרון
+            if st.session_state.last_swiped_name:
+                st.markdown("<div style='margin-top: 15px;'>", unsafe_allow_html=True)
+                if st.button(f"↩️ התחרטתי! החזר את '{st.session_state.last_swiped_name}'", use_container_width=True):
+                    undo_swipe(st.session_state.room_code, st.session_state.user_name, st.session_state.last_swiped_name)
+                    st.session_state.last_swiped_name = None
+                    st.rerun()
+                st.markdown("</div>", unsafe_allow_html=True)
+                
             if st.button("📂 חזרה לבחירת קטגוריות", type="primary", use_container_width=True):
                 st.session_state.selected_category = None
                 st.session_state.sort_order = None
+                st.session_state.last_swiped_name = None
                 st.rerun()
 
 # ==========================================
