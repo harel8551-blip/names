@@ -360,6 +360,76 @@ elif st.session_state.view_mode == "my_likes":
 
 # --- מסך החלקה ובחירת קטגוריות ---
 elif st.session_state.view_mode == "swipe":
+    
+    # תצוגת התאמה מושלמת צריכה לעצור הכל (הועברה לתחילת המסך)
+    if st.session_state.perfect_match_alert:
+        pm = st.session_state.perfect_match_alert
+        baby_emoji = "👦" if pm["gender"] == "זכר" else "👧" if pm["gender"] == "נקבה" else "👶"
+        st.balloons()
+        st.markdown(f"""
+        <div style="text-align: center; padding: 50px 20px; background: linear-gradient(135deg, #fdfbfb 0%, #ebedee 100%); border-radius: 20px; border: 3px solid #ff4b4b; box-shadow: 0 10px 20px rgba(0,0,0,0.1); margin-bottom: 30px; margin-top: 20px;">
+            <h1 style="font-size: 38px; color: #ff4b4b; margin-bottom: 10px;">🎉 התאמה זוגית מושלמת! 🎉</h1>
+            <h2 style="font-size: 26px; color: #333;">אבא ואמא הסכימו על השם: <br><br><b style="font-size: 40px; color: #ff4b4b;">{pm['name']}</b></h2>
+            <div style="font-size: 110px; animation: bounce 1s infinite; margin: 30px 0;">{baby_emoji}</div>
+            <style>@keyframes bounce {{ 0%, 100% {{ transform: translateY(0); }} 50% {{ transform: translateY(-30px); }} }}</style>
+        </div>
+        """, unsafe_allow_html=True)
+        if st.button("🚀 איזה יופי! המשך לשם הבא", use_container_width=True, type="primary"):
+            st.session_state.perfect_match_alert = None
+            st.rerun()
+        st.stop()
+        
+    elif st.session_state.match_alert:
+        st.toast(st.session_state.match_alert, icon="💘")
+        st.success(st.session_state.match_alert)
+        st.session_state.match_alert = None
+
+    # --- מנוע חיפוש ספציפי ---
+    st.markdown("### 🔍 חיפוש שם ספציפי")
+    search_q = st.text_input("חיפוש", placeholder="הקלד שם כדי למצוא אותו מיד...", label_visibility="collapsed")
+    
+    if search_q.strip():
+        results = [item for item in NAMES_DB if search_q.strip() in item["name"]]
+        if not results:
+            st.warning("לא מצאנו שם כזה במאגר.")
+        else:
+            st.write(f"נמצאו {len(results)} תוצאות:")
+            for item in results:
+                st.markdown(f"""
+                <div style="padding: 15px; border-radius: 10px; background-color: #fafafa; border: 1px solid #ddd; margin-bottom: 10px;">
+                    <h3 style="color: #ff4b4b; margin: 0 0 5px 0;">{item['name']}</h3>
+                    <p style="font-size: 14px; color: #555; margin: 0;"><b>מין:</b> {item.get('gender', '')} | <b>משמעות:</b> {item.get('meaning', 'אין פירוש')}</p>
+                </div>
+                """, unsafe_allow_html=True)
+                
+                c1, c2 = st.columns(2)
+                with c1:
+                    if st.button("❌ לא מתאים", key=f"sx_{item['name']}", use_container_width=True):
+                        save_swipe(st.session_state.room_code, st.session_state.user_name, st.session_state.user_role, item["name"], "חיפוש ממוקד", "reject")
+                        st.rerun()
+                with c2:
+                    if st.button("❤️ אהבתי", key=f"sv_{item['name']}", use_container_width=True, type="primary"):
+                        other_likes_data = [x for x in room_swipes if x["baby_name"] == item["name"] and x["status"] == "like" and x["user_name"] != st.session_state.user_name]
+                        save_swipe(st.session_state.room_code, st.session_state.user_name, st.session_state.user_role, item["name"], "חיפוש ממוקד", "like")
+                        
+                        other_roles = [x["role"] for x in other_likes_data]
+                        other_names = [x["user_name"] for x in other_likes_data]
+                        current_role = st.session_state.user_role
+                        
+                        is_perfect_match = False
+                        if current_role == "אבא" and "אמא" in other_roles: is_perfect_match = True
+                        elif current_role == "אמא" and "אבא" in other_roles: is_perfect_match = True
+                            
+                        if is_perfect_match:
+                            st.session_state.perfect_match_alert = {"name": item["name"], "gender": item["gender"]}
+                        elif other_names:
+                            st.session_state.match_alert = f"🎉 התאמה על השם '{item['name']}' עם: {', '.join(set(other_names))}!"
+                        st.rerun()
+                st.markdown("<hr style='margin: 10px 0;'>", unsafe_allow_html=True)
+        st.stop()
+
+    st.markdown("<br>", unsafe_allow_html=True)
+
     # 1. בחירת מין
     if st.session_state.selected_gender is None:
         st.title("למי מחפשים שם? 👶")
@@ -480,29 +550,6 @@ elif st.session_state.view_mode == "swipe":
 
         st.subheader(f"✨ {display_title}")
 
-        # תצוגת התאמה מושלמת
-        if st.session_state.perfect_match_alert:
-            pm = st.session_state.perfect_match_alert
-            baby_emoji = "👦" if pm["gender"] == "זכר" else "👧" if pm["gender"] == "נקבה" else "👶"
-            st.balloons()
-            st.markdown(f"""
-            <div style="text-align: center; padding: 50px 20px; background: linear-gradient(135deg, #fdfbfb 0%, #ebedee 100%); border-radius: 20px; border: 3px solid #ff4b4b; box-shadow: 0 10px 20px rgba(0,0,0,0.1); margin-bottom: 30px; margin-top: 20px;">
-                <h1 style="font-size: 38px; color: #ff4b4b; margin-bottom: 10px;">🎉 התאמה זוגית מושלמת! 🎉</h1>
-                <h2 style="font-size: 26px; color: #333;">אבא ואמא הסכימו על השם: <br><br><b style="font-size: 40px; color: #ff4b4b;">{pm['name']}</b></h2>
-                <div style="font-size: 110px; animation: bounce 1s infinite; margin: 30px 0;">{baby_emoji}</div>
-                <style>@keyframes bounce {{ 0%, 100% {{ transform: translateY(0); }} 50% {{ transform: translateY(-30px); }} }}</style>
-            </div>
-            """, unsafe_allow_html=True)
-            if st.button("🚀 איזה יופי! המשך לשם הבא", use_container_width=True, type="primary"):
-                st.session_state.perfect_match_alert = None
-                st.rerun()
-            st.stop()
-            
-        elif st.session_state.match_alert:
-            st.toast(st.session_state.match_alert, icon="💘")
-            st.success(st.session_state.match_alert)
-            st.session_state.match_alert = None
-        
         if len(unswiped_names_in_cat) > 0:
             curr = unswiped_names_in_cat[0]
             st.markdown(f"""
