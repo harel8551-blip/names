@@ -119,25 +119,29 @@ def check_and_register_user(room, user, role):
         res = supabase.table("room_users").select("user_name, role").eq("room_code", room).execute()
         users_in_room = res.data or []
         
-        # 1. קודם כל נוודא שהתפקיד לא תפוס על ידי משתמש *אחר* בחדר
         if role in ["אבא", "אמא"]:
             for u in users_in_room:
                 if u["role"] == role and u["user_name"] != user:
                     return False, f"התפקיד '{role}' כבר תפוס על ידי '{u['user_name']}' בחדר הזה."
         
-        # 2. נבדק אם המשתמש כבר קיים בחדר
         for u in users_in_room:
             if u["user_name"] == user:
-                # אם הוא קיים אבל שינה תפקיד, נעדכן את מסד הנתונים
                 if u["role"] != role:
                     supabase.table("room_users").update({"role": role}).eq("room_code", room).eq("user_name", user).execute()
                 return True, ""
                 
-        # 3. אם זה משתמש חדש לגמרי
         supabase.table("room_users").insert({"room_code": room, "user_name": user, "role": role}).execute()
         return True, ""
     except Exception as e:
         return False, f"שגיאת מסד נתונים: {e}"
+
+# שליפת כל המשתמשים שנמצאים כרגע בחדר
+def get_room_users(room):
+    try:
+        res = supabase.table("room_users").select("user_name, role").eq("room_code", room).execute()
+        return res.data or []
+    except Exception:
+        return []
 
 def save_swipe(room, user, role, baby_name, category, status):
     try:
@@ -358,11 +362,16 @@ if not st.session_state.room_code or not st.session_state.user_name:
 # ==========================================
 # --- תפריט הניווט העליון (למשתמשים מחוברים) ---
 # ==========================================
-st.markdown(f"<div style='text-align:center; color:#888; margin-bottom: 10px;'>👤 <b>{st.session_state.user_name}</b> ({st.session_state.user_role}) | חדר: <b>{st.session_state.room_code}</b></div>", unsafe_allow_html=True)
+st.markdown(f"<div style='text-align:center; color:#555; margin-bottom: 5px;'>👤 <b>{st.session_state.user_name}</b> ({st.session_state.user_role}) | חדר: <b>{st.session_state.room_code}</b></div>", unsafe_allow_html=True)
+
+# הצגת כל המשתמשים שנמצאים בחדר כרגע
+room_users = get_room_users(st.session_state.room_code)
+users_str = " | ".join([f"{u['user_name']} ({u['role']})" for u in room_users])
+st.markdown(f"<div style='text-align:center; color:#888; font-size: 13px; margin-bottom: 12px; background:#f8f9fa; padding: 5px; border-radius: 8px;'>👥 <b>משתמשים בחדר:</b> {users_str}</div>", unsafe_allow_html=True)
 
 col1, col2, col3 = st.columns(3)
 with col1:
-    if st.button("🔍 חיפוש", use_container_width=True):
+    if st.button("📂 קטגוריות", use_container_width=True):
         st.session_state.view_mode = "swipe"
         st.session_state.selected_category = None
         st.rerun()
@@ -407,7 +416,7 @@ elif st.session_state.view_mode == "my_likes":
     
     my_liked_names = get_my_likes(st.session_state.room_code, st.session_state.user_name)
     if not my_liked_names:
-        st.info("עדיין לא אהבת אף שם. יאללה, חזור לחיפוש! 😎")
+        st.info("עדיין לא אהבת אף שם. יאללה, חזור לקטגוריות! 😎")
     else:
         db_dict = {item["name"]: item for item in NAMES_DB}
         for name in my_liked_names:
@@ -514,7 +523,7 @@ elif st.session_state.view_mode == "swipe":
         unswiped_names_in_cat = [item for item in matching_items if item["name"] not in user_swiped_names]
         
         st.subheader(f"✨ {display_title} ({st.session_state.selected_gender})")
-        if st.button("📂 חזור לבחירת קטגוריות", use_container_width=True):
+        if st.button("📂 חזרה לבחירת קטגוריות", use_container_width=True):
             st.session_state.selected_category = None
             st.rerun()
 
