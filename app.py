@@ -212,10 +212,9 @@ def build_matches_df(matches_list, names_db):
     for m in matches_list:
         b_name = m["name"]
         info = db_dict.get(b_name, {})
+        # הוסר המין והקטגוריה לבקשתך
         rows.append({
             "שם": b_name,
-            "מין": info.get("gender", ""),
-            "קטגוריה": info.get("category", "לא צוין"),
             "משמעות": info.get("meaning", "אין פירוש"),
             "מי הסכים": m["users"]
         })
@@ -306,7 +305,6 @@ if st.session_state.is_admin:
                 st.success("כל השמות נמחקו בהצלחה! כעת ניתן לטעון רשימה חדשה.")
                 st.rerun()
         if all_names:
-            # שימוש בטבלת HTML יפה במקום DataFrame רגיל
             df_all = pd.DataFrame(all_names)
             st.markdown(df_all.to_html(index=False, classes="rtl-table"), unsafe_allow_html=True)
     st.stop()
@@ -375,7 +373,6 @@ if st.session_state.view_mode == "parent_matches":
     p_matches, _ = get_matches(st.session_state.room_code)
     if p_matches:
         df = build_matches_df(p_matches, NAMES_DB)
-        # שימוש בטבלת HTML יפה ומיושרת לימין
         st.markdown(df.to_html(index=False, classes="rtl-table"), unsafe_allow_html=True)
     else:
         st.info("עדיין אין הסכמה זוגית על אף שם.")
@@ -386,13 +383,11 @@ elif st.session_state.view_mode == "family_matches":
     _, f_matches = get_matches(st.session_state.room_code)
     if f_matches:
         df = build_matches_df(f_matches, NAMES_DB)
-        # שימוש בטבלת HTML יפה ומיושרת לימין
         st.markdown(df.to_html(index=False, classes="rtl-table"), unsafe_allow_html=True)
     else:
         st.info("עדיין אין שמות עם תמיכה משפחתית משולבת.")
 
 elif st.session_state.view_mode == "swipe":
-    # שלב 1: בחירת בן / בת לפני הכל
     if st.session_state.selected_gender is None:
         st.title("למי מחפשים שם? 👶")
         st.write("בחר כדי שנסנן עבורך את השמות והקטגוריות הרלוונטיים:")
@@ -417,7 +412,6 @@ elif st.session_state.view_mode == "swipe":
         if matches_gender_filter(item.get("gender", ""), st.session_state.selected_gender)
     ]
 
-    # שלב 2: בחירת קטגוריה ותת-קטגוריה
     if st.session_state.selected_category is None:
         st.title(f"בחר קטגוריה ({st.session_state.selected_gender}) 📂")
         
@@ -460,7 +454,6 @@ elif st.session_state.view_mode == "swipe":
                             st.session_state.selected_category = full_cat
                             st.rerun()
 
-    # שלב 3: מסך ההחלקה
     else:
         sel_cat = st.session_state.selected_category
         if sel_cat.startswith("MAIN:"):
