@@ -25,13 +25,22 @@ st.markdown(
         font-weight: bold !important;
     }
     
-    /* --- עיצוב מושלם לטבלאות --- */
+    /* --- עיצוב מושלם וברור לטבלאות (טקסט שחור וברור) --- */
     .rtl-table {
         width: 100%; direction: rtl; text-align: right; border-collapse: collapse;
-        font-family: sans-serif; margin-top: 10px; margin-bottom: 20px; background-color: white;
+        font-family: sans-serif; margin-top: 10px; margin-bottom: 20px; background-color: #ffffff;
     }
-    .rtl-table th, .rtl-table td { border: 1px solid #e0e0e0; padding: 12px; text-align: right !important; }
-    .rtl-table th { background-color: #f8f9fa; font-weight: bold; color: #333; }
+    .rtl-table th, .rtl-table td { 
+        border: 1px solid #e0e0e0; 
+        padding: 12px; 
+        text-align: right !important; 
+        color: #333333 !important; 
+    }
+    .rtl-table th { 
+        background-color: #f8f9fa; 
+        font-weight: bold; 
+        color: #111111 !important; 
+    }
     .rtl-table tr:nth-child(even) { background-color: #fafafa; }
     .rtl-table tr:hover { background-color: #f1f1f1; }
     </style>
@@ -118,7 +127,6 @@ def get_all_swipes_stats():
             start += batch_size
         return all_data
     except Exception as e:
-        st.error(f"שגיאה במשיכת הנתונים למנהל: {e}")
         return []
 
 def get_room_users(room):
@@ -273,7 +281,7 @@ if st.session_state.is_admin:
             st.markdown(pd.DataFrame(all_names).to_html(index=False, classes="rtl-table"), unsafe_allow_html=True)
             
     with tab4:
-        st.write("כמה שמות סימן כל משתמש בכל החדרים:")
+        st.write("סטטיסטיקות שימוש לפי חדרים (לחץ על חדר לפתיחה):")
         if st.button("🔄 רענן נתונים"):
             st.rerun()
         
@@ -281,27 +289,24 @@ if st.session_state.is_admin:
         if not swipes_data:
             st.info("אין עדיין החלקות במערכת או שהטבלה ריקה.")
         else:
-            # פתרון מותאם לפייתון נקי במקום גרופ-ביי של פנדס, מונע מחיקת שורות ריקות!
-            stats = {}
+            # מִבְנֶה נתונים לפי חדרים
+            rooms_dict = {}
             for row in swipes_data:
                 r = row.get("room_code")
                 u = row.get("user_name")
-                
-                # אם הערך ריק במסד הנתונים נחליף אותו במחרוזת חלופית
                 if not r: r = "חדר לא ידוע"
                 if not u: u = "משתמש לא ידוע"
                 
-                key = (r, u)
-                stats[key] = stats.get(key, 0) + 1
-                
-            rows = [{"חדר": k[0], "משתמש": k[1], "כמות שמות שסומנו (אהב/פסל)": v} for k, v in stats.items()]
-            stats_df = pd.DataFrame(rows)
+                if r not in rooms_dict:
+                    rooms_dict[r] = {}
+                rooms_dict[r][u] = rooms_dict[r].get(u, 0) + 1
             
-            if not stats_df.empty:
-                stats_df = stats_df.sort_values(by=["חדר", "כמות שמות שסומנו (אהב/פסל)"], ascending=[True, False])
-                st.markdown(stats_df.to_html(index=False, classes="rtl-table"), unsafe_allow_html=True)
-            else:
-                st.warning("לא הצלחנו לייצר את הטבלה למרות שיש נתונים. (פנה לתמיכה)")
+            # הצגת כל חדר בתוך אקורדיון נפרד
+            for room_code, users_counts in sorted(rooms_dict.items()):
+                with st.expander(f"🏠 חדר: {room_code}"):
+                    rows = [{"משתמש": u, "כמות שמות שסומנו (אהב/פסל)": cnt} for u, cnt in sorted(users_counts.items(), key=lambda x: x[1], reverse=True)]
+                    room_df = pd.DataFrame(rows)
+                    st.markdown(room_df.to_html(index=False, classes="rtl-table"), unsafe_allow_html=True)
             
     st.stop()
 
@@ -451,7 +456,7 @@ elif st.session_state.match_alert:
     st.session_state.match_alert = None
 
 
-# --- ניתוב למ מסכים ---
+# --- ניתוב למסכים ---
 
 # --- מסך התאמות ---
 if st.session_state.view_mode == "matches":
