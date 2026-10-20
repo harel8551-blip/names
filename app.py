@@ -288,27 +288,58 @@ if not st.session_state.room_code or not st.session_state.user_name:
     st.stop()
 
 # ==========================================
-# משיכת נתונים מרוכזת ומהירה עבור המשתמש המחובר
+# שליפת מאגר הנתונים הכללי
+# ==========================================
+NAMES_DB = fetch_all_names()
+if not NAMES_DB:
+    st.warning("המאגר ריק. התנתק והיכנס לפאנל המנהל כדי להוסיף שמות.")
+    st.stop()
+
+# ==========================================
+# משיכת נתונים מרוכזת ומנגנון התראות גלובלי
 # ==========================================
 room_swipes = fetch_room_swipes(st.session_state.room_code)
 room_users = get_room_users(st.session_state.room_code)
 parent_matches, family_matches = get_matches_local(room_swipes)
 
-# מנגנון התראות על התאמות חדשות שנוצרו
 current_pms = set(pm["name"] for pm in parent_matches)
-if "notified_pm" not in st.session_state:
-    st.session_state.notified_pm = current_pms
-else:
-    new_pms = current_pms - st.session_state.notified_pm
-    if new_pms:
-        for nm in new_pms:
-            if st.session_state.perfect_match_alert and st.session_state.perfect_match_alert["name"] == nm:
-                continue
-            st.toast(f"🎉 התאמה זוגית חדשה שפספסת: {nm}!", icon="💖")
-        st.session_state.notified_pm = current_pms
+current_fms = set(fm["name"] for fm in family_matches)
+
+# אתחול הזיכרון פעם אחת כדי לא להקפיץ הכל בכניסה הראשונה
+if "notified_pms" not in st.session_state:
+    st.session_state.notified_pms = current_pms.copy()
+if "notified_fms" not in st.session_state:
+    st.session_state.notified_fms = current_fms.copy()
+
+# זיהוי התאמות חדשות שנוצרו (על ידינו או על ידי בן משפחה אחר)
+new_pms = current_pms - st.session_state.notified_pms
+new_fms = current_fms - st.session_state.notified_fms
+
+# אם יש התאמה זוגית חדשה - נכין אותה לפופאפ (אחת בכל פעם)
+if new_pms and not st.session_state.perfect_match_alert:
+    pm_name = list(new_pms)[0]
+    gender = "יוניסקס"
+    for item in NAMES_DB:
+        if item["name"] == pm_name:
+            gender = item.get("gender", "יוניסקס")
+            break
+    st.session_state.perfect_match_alert = {"name": pm_name, "gender": gender}
+    st.session_state.notified_pms.add(pm_name)
+
+# אם יש התאמה משפחתית חדשה
+elif new_fms and not st.session_state.match_alert:
+    fm_name = list(new_fms)[0]
+    users_str = ""
+    for fm in family_matches:
+        if fm["name"] == fm_name:
+            users_str = fm["users"]
+            break
+    st.session_state.match_alert = f"🎉 התאמה משפחתית על השם '{fm_name}' עם: {users_str}!"
+    st.session_state.notified_fms.add(fm_name)
+
 
 # ==========================================
-# תפריט הניווט העליון
+# תפריט הניווט העליון (מותאם לרשת של 2x2)
 # ==========================================
 users_str = " | ".join([f"{u['user_name']} ({u['role']})" for u in room_users])
 st.markdown(f"<div style='text-align:center; color:#888; font-size: 13px; margin-bottom: 12px; background:#f8f9fa; padding: 5px; border-radius: 8px;'>👥 <b>מחוברים כרגע בחדר {st.session_state.room_code}:</b><br>{users_str}</div>", unsafe_allow_html=True)
@@ -344,11 +375,6 @@ with menu_col4:
         st.session_state.force_next_name = None
         st.rerun()
 st.markdown("---")
-
-NAMES_DB = fetch_all_names()
-if not NAMES_DB:
-    st.warning("המאגר ריק. התנתק והיכנס לפאנל המנהל כדי להוסיף שמות.")
-    st.stop()
 
 # ==========================================
 # תצוגת פופ-אפ התאמות (גלובלי - עובד בכל מסך)
@@ -451,22 +477,7 @@ elif st.session_state.view_mode == "search":
                         st.rerun()
                 with c2:
                     if st.button("👶 החלף ל-אהבתי!", key=f"lik_{curr['name']}", use_container_width=True):
-                        other_likes_data = [x for x in room_swipes if x["baby_name"] == curr["name"] and x["status"] == "like" and x["user_name"] != st.session_state.user_name]
                         save_swipe(st.session_state.room_code, st.session_state.user_name, st.session_state.user_role, curr["name"], curr.get("category", "חיפוש"), "like")
-                        
-                        other_roles = [x["role"] for x in other_likes_data]
-                        other_names = [x["user_name"] for x in other_likes_data]
-                        current_role = st.session_state.user_role
-                        
-                        is_perfect_match = False
-                        if current_role == "אבא" and "אמא" in other_roles: is_perfect_match = True
-                        elif current_role == "אמא" and "אבא" in other_roles: is_perfect_match = True
-                            
-                        if is_perfect_match:
-                            st.session_state.perfect_match_alert = {"name": curr["name"], "gender": curr["gender"]}
-                        elif other_names:
-                            st.session_state.match_alert = f"🎉 התאמה על השם '{curr['name']}' עם: {', '.join(set(other_names))}!"
-                        
                         st.session_state.view_mode = "my_likes"
                         st.rerun()
                 st.markdown("<br>", unsafe_allow_html=True)
@@ -604,14 +615,12 @@ elif st.session_state.view_mode == "swipe":
             rng = random.Random(st.session_state.random_seed)
             rng.shuffle(unswiped_names_in_cat)
 
-        # --- התיקון: כפיית השם שהתחרטנו עליו להופיע ראשון ---
+        # כפיית השם שהתחרטנו עליו להופיע ראשון
         if st.session_state.force_next_name:
             for i, item in enumerate(unswiped_names_in_cat):
                 if item["name"] == st.session_state.force_next_name:
                     unswiped_names_in_cat.insert(0, unswiped_names_in_cat.pop(i))
                     break
-            # שימו לב: אנחנו לא מנקים כאן את force_next_name יותר!
-            # זה יימחק רק אחרי שתלחץ בפועל על אהבתי/פסילה.
 
         st.subheader(f"✨ {display_title}")
         
@@ -629,29 +638,14 @@ elif st.session_state.view_mode == "swipe":
                 if st.button("❌ לא מתאים", use_container_width=True):
                     save_swipe(st.session_state.room_code, st.session_state.user_name, st.session_state.user_role, curr["name"], display_title, "reject")
                     st.session_state.last_swiped_name = curr["name"]
-                    st.session_state.force_next_name = None # <--- הניקוי קורה רק פה!
+                    st.session_state.force_next_name = None 
                     st.session_state.random_seed = random.randint(1, 100000)
                     st.rerun()
             with col2:
                 if st.button("👶 אהבתי!", use_container_width=True, type="primary"):
-                    other_likes_data = [x for x in room_swipes if x["baby_name"] == curr["name"] and x["status"] == "like" and x["user_name"] != st.session_state.user_name]
                     save_swipe(st.session_state.room_code, st.session_state.user_name, st.session_state.user_role, curr["name"], display_title, "like")
                     st.session_state.last_swiped_name = curr["name"]
-                    st.session_state.force_next_name = None # <--- הניקוי קורה רק פה!
-                    
-                    other_roles = [x["role"] for x in other_likes_data]
-                    other_names = [x["user_name"] for x in other_likes_data]
-                    current_role = st.session_state.user_role
-                    
-                    is_perfect_match = False
-                    if current_role == "אבא" and "אמא" in other_roles: is_perfect_match = True
-                    elif current_role == "אמא" and "אבא" in other_roles: is_perfect_match = True
-                        
-                    if is_perfect_match:
-                        st.session_state.perfect_match_alert = {"name": curr["name"], "gender": curr["gender"]}
-                    elif other_names:
-                        st.session_state.match_alert = f"🎉 התאמה על השם '{curr['name']}' עם: {', '.join(set(other_names))}!"
-                        
+                    st.session_state.force_next_name = None
                     st.session_state.random_seed = random.randint(1, 100000)
                     st.rerun()
             
