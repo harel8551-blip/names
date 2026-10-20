@@ -131,7 +131,6 @@ def check_and_register_user(room, user, role):
 
 def save_swipe(room, user, role, baby_name, category, status):
     try:
-        # קודם מוחקים בחירה קודמת כדי למנוע באגים, ואז שומרים בחירה חדשה
         supabase.table("swipes").delete().eq("room_code", room).eq("user_name", user).eq("baby_name", baby_name).execute()
         supabase.table("swipes").insert({
             "room_code": room, "user_name": user, "role": role, "baby_name": baby_name, "category": category, "status": status
@@ -486,7 +485,7 @@ elif st.session_state.view_mode == "swipe":
     if st.session_state.selected_category is None:
         st.title(f"חיפוש שמות ל{st.session_state.selected_gender} 📂")
         
-        if st.button(f"🎲 רוצה פשוט להחליק? (מעורבב)", use_container_width=True):
+        if st.button(f"🎲 רוצה פשוט להחליק? (מעורבב)", use_container_width=True, type="primary"):
             st.session_state.selected_category = "GLOBAL_RANDOM"
             st.session_state.sort_order = "random"
             st.session_state.random_seed = random.randint(1, 100000)
@@ -540,7 +539,7 @@ elif st.session_state.view_mode == "swipe":
         st.markdown("<br>", unsafe_allow_html=True)
         col_r, col_a = st.columns(2)
         with col_r:
-            if st.button("🔀 באקראי\n\n(הכי כיף)", use_container_width=True):
+            if st.button("🔀 באקראי\n\n(הכי כיף)", use_container_width=True, type="primary"):
                 st.session_state.sort_order = "random"
                 st.session_state.random_seed = random.randint(1, 100000)
                 st.rerun()
@@ -594,9 +593,10 @@ elif st.session_state.view_mode == "swipe":
             with col1:
                 if st.button("❌ לא מתאים", use_container_width=True):
                     save_swipe(st.session_state.room_code, st.session_state.user_name, st.session_state.user_role, curr["name"], display_title, "reject")
+                    st.session_state.random_seed = random.randint(1, 100000) # מרענן את האקראיות על כל לחיצה
                     st.rerun()
             with col2:
-                if st.button("👶 אהבתי!", use_container_width=True):
+                if st.button("👶 אהבתי!", use_container_width=True, type="primary"):
                     other_likes_data = [x for x in room_swipes if x["baby_name"] == curr["name"] and x["status"] == "like" and x["user_name"] != st.session_state.user_name]
                     save_swipe(st.session_state.room_code, st.session_state.user_name, st.session_state.user_role, curr["name"], display_title, "like")
                     
@@ -613,6 +613,7 @@ elif st.session_state.view_mode == "swipe":
                     elif other_names:
                         st.session_state.match_alert = f"🎉 התאמה על השם '{curr['name']}' עם: {', '.join(set(other_names))}!"
                         
+                    st.session_state.random_seed = random.randint(1, 100000) # מרענן את האקראיות על כל לחיצה
                     st.rerun()
                     
             total_in_cat = len(matching_items)
