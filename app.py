@@ -16,6 +16,29 @@ st.markdown(
     [data-testid="stAlert"] { direction: rtl; text-align: right; }
     .stSelectbox div[data-baseweb="select"] { text-align: right; }
     
+    /* --- הגדלת כפתורי הבחירה (רנדומלי / א-ב) --- */
+    div.stRadio > div[role="radiogroup"] > label {
+        padding: 15px 25px !important;
+        background-color: #fcfcfc;
+        border: 2px solid #ff4b4b !important;
+        border-radius: 15px !important;
+        margin-left: 10px;
+        box-shadow: 0 4px 6px rgba(0,0,0,0.05);
+        cursor: pointer;
+    }
+    div.stRadio > div[role="radiogroup"] > label p {
+        font-size: 22px !important;
+        font-weight: bold !important;
+        color: #333;
+        margin-top: 0px !important;
+    }
+    /* הגדלת העיגול עצמו */
+    div.stRadio > div[role="radiogroup"] > label div:first-child {
+        transform: scale(1.4);
+        margin-left: 10px;
+    }
+    
+    /* --- עיצוב מושלם לטבלאות --- */
     .rtl-table {
         width: 100%; direction: rtl; text-align: right; border-collapse: collapse;
         font-family: sans-serif; margin-top: 10px; margin-bottom: 20px; background-color: white;
@@ -184,9 +207,9 @@ def matches_gender_filter(item_gender, selected_filter):
     return True
 
 # --- אתחול משתני סשן ---
-for key in ["room_code", "user_name", "user_role", "selected_gender", "selected_category", "is_admin", "view_mode", "match_alert", "perfect_match_alert", "sort_order", "random_seed", "sort_confirmed"]:
+for key in ["room_code", "user_name", "user_role", "selected_gender", "selected_category", "is_admin", "view_mode", "match_alert", "perfect_match_alert", "sort_order", "random_seed"]:
     if key not in st.session_state:
-        st.session_state[key] = False if key in ["is_admin", "sort_confirmed"] else ("swipe" if key == "view_mode" else ("🔀 אקראית (מומלץ)" if key == "sort_order" else None))
+        st.session_state[key] = False if key == "is_admin" else ("swipe" if key == "view_mode" else ("🔀 אקראית (מומלץ)" if key == "sort_order" else None))
 
 # --- פאנל מנהל ---
 if st.session_state.is_admin:
@@ -297,7 +320,6 @@ with col1:
     if st.button("📂 קטגוריות", use_container_width=True):
         st.session_state.view_mode = "swipe"
         st.session_state.selected_category = None
-        st.session_state.sort_confirmed = False
         st.rerun()
 with col2:
     if st.button("👑 התאמות", use_container_width=True):
@@ -351,7 +373,7 @@ elif st.session_state.view_mode == "my_likes":
                     st.rerun()
             st.markdown("<hr style='margin: 5px 0; border: none; border-bottom: 1px solid #eee;'>", unsafe_allow_html=True)
 
-# --- מסך ניווט והחלקה ---
+# --- מסך החלקה ובחירת קטגוריות ---
 elif st.session_state.view_mode == "swipe":
     # 1. בחירת מין
     if st.session_state.selected_gender is None:
@@ -374,14 +396,18 @@ elif st.session_state.view_mode == "swipe":
     user_swiped_names = get_user_swiped_names_local(room_swipes, st.session_state.user_name)
     gender_filtered_db = [item for item in NAMES_DB if matches_gender_filter(item.get("gender", ""), st.session_state.selected_gender)]
 
-    # 2. בחירת קטגוריה בלבדית
+    # 2. בחירת קטגוריה וסדר
     if st.session_state.selected_category is None:
         st.title(f"חיפוש שמות ל{st.session_state.selected_gender} 📂")
         
-        # כפתור כל השמות יחד (בלי לשאול פה על סידור)
-        if st.button("🎲 כל השמות (מכל הקטגוריות)", use_container_width=True, type="primary"):
-            st.session_state.selected_category = "GLOBAL_ALL"
-            st.session_state.sort_confirmed = False
+        st.markdown("### איך תרצה שהשמות יופיעו? ⚙️")
+        st.session_state.sort_order = st.radio("", ["🔀 אקראית (מומלץ)", "🔠 לפי סדר א'-ב'"], horizontal=True, label_visibility="collapsed")
+        
+        st.markdown("<br>", unsafe_allow_html=True)
+        
+        if st.button(f"🎲 רוצה פשוט להחליק? (הכל באקראי)", use_container_width=True, type="primary"):
+            st.session_state.selected_category = "GLOBAL_RANDOM"
+            st.session_state.random_seed = random.randint(1, 100000)
             st.rerun()
             
         st.markdown("---")
@@ -411,7 +437,7 @@ elif st.session_state.view_mode == "swipe":
                     if len(sub_dict) > 1:
                         if st.button(f"🌟 כל השמות ב-{main_c} ({unique_in_main})", key=f"ALL_{main_c}", use_container_width=True):
                             st.session_state.selected_category = f"MAIN:{main_c}"
-                            st.session_state.sort_confirmed = False
+                            st.session_state.random_seed = random.randint(1, 100000)
                             st.rerun()
                         st.markdown("---")
                     
@@ -419,41 +445,14 @@ elif st.session_state.view_mode == "swipe":
                         display_sub = full_cat.split(" - ", 1)[1] if " - " in full_cat else full_cat
                         if st.button(f"🔹 {display_sub} ({cnt} שמות)", key=f"SUB_{full_cat}", use_container_width=True):
                             st.session_state.selected_category = full_cat
-                            st.session_state.sort_confirmed = False
+                            st.session_state.random_seed = random.randint(1, 100000)
                             st.rerun()
-
-    # 2.5 מסך בחירת סידור בלבד (קופץ רק אחרי בחירת קטגוריה)
-    elif not st.session_state.sort_confirmed:
-        sel_cat = st.session_state.selected_category
-        display_title = "כל השמות" if sel_cat == "GLOBAL_ALL" else (sel_cat.replace("MAIN:", "") if sel_cat.startswith("MAIN:") else sel_cat)
-        
-        st.markdown(f"""
-        <div style="padding: 20px; background-color: #f8f9fa; border-radius: 10px; border: 1px solid #ddd; text-align: center;">
-            <h3 style="margin-bottom: 10px; color: #333;">בחרת ב: <b>{display_title}</b></h3>
-            <p style="font-size: 16px; color: #666;">איך תרצה להציג את השמות?</p>
-        </div>
-        <br>
-        """, unsafe_allow_html=True)
-        
-        st.session_state.sort_order = st.radio("בחר סדר:", ["🔀 אקראית (מומלץ)", "🔠 לפי סדר א'-ב'"], label_visibility="collapsed")
-        
-        st.markdown("<br>", unsafe_allow_html=True)
-        col_back, col_start = st.columns(2)
-        with col_back:
-            if st.button("⬅️ התחרטתי, חזור אחורה", use_container_width=True):
-                st.session_state.selected_category = None
-                st.rerun()
-        with col_start:
-            if st.button("🚀 התחל להחליק!", use_container_width=True, type="primary"):
-                st.session_state.sort_confirmed = True
-                st.session_state.random_seed = random.randint(1, 100000)
-                st.rerun()
 
     # 3. מסך החלקה
     else:
         sel_cat = st.session_state.selected_category
-        if sel_cat == "GLOBAL_ALL":
-            display_title = "כל השמות"
+        if sel_cat == "GLOBAL_RANDOM":
+            display_title = "כל השמות באקראי"
             matching_items = gender_filtered_db
         elif sel_cat.startswith("MAIN:"):
             main_name = sel_cat.replace("MAIN:", "")
@@ -465,7 +464,7 @@ elif st.session_state.view_mode == "swipe":
 
         unswiped_names_in_cat = [item for item in matching_items if item["name"] not in user_swiped_names]
         
-        # סידור (רנדומלי או א-ב) לפי מה שנבחר
+        # סידור (רנדומלי או א-ב)
         unswiped_names_in_cat.sort(key=lambda x: x["name"])
         if st.session_state.sort_order == "🔀 אקראית (מומלץ)" and unswiped_names_in_cat:
             if "random_seed" not in st.session_state:
@@ -540,5 +539,4 @@ elif st.session_state.view_mode == "swipe":
             st.success("סיימת את כל השמות בקבוצה הזו!")
             if st.button("📂 חזרה לבחירת קטגוריות", type="primary", use_container_width=True):
                 st.session_state.selected_category = None
-                st.session_state.sort_confirmed = False
                 st.rerun()
