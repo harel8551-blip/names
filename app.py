@@ -104,6 +104,22 @@ def fetch_room_swipes(room):
     except Exception:
         return []
 
+def get_all_swipes_stats():
+    all_data = []
+    batch_size = 1000
+    start = 0
+    try:
+        while True:
+            res = supabase.table("swipes").select("room_code, user_name").range(start, start + batch_size - 1).execute()
+            data = res.data or []
+            all_data.extend(data)
+            if len(data) < batch_size:
+                break
+            start += batch_size
+        return all_data
+    except Exception:
+        return []
+
 def get_room_users(room):
     try:
         res = supabase.table("room_users").select("user_name, role").eq("room_code", room).execute()
@@ -217,7 +233,7 @@ if st.session_state.is_admin:
         st.session_state.is_admin = False
         st.rerun()
         
-    tab1, tab2, tab3 = st.tabs(["📤 טעינת רשימת טקסט", "➕ הוספה ידנית", "📋 מאגר קיים ואיפוס"])
+    tab1, tab2, tab3, tab4 = st.tabs(["📤 טעינת רשימת טקסט", "➕ הוספה ידנית", "📋 מאגר קיים ואיפוס", "📊 סטטיסטיקות"])
     with tab1:
         st.write("הדבק כאן ישירות את תוכן ה-CSV (כולל שורת הכותרת `name,gender,category,meaning`):")
         pasted_text = st.text_area("טקסט ה-CSV", height=250)
@@ -254,6 +270,22 @@ if st.session_state.is_admin:
                 st.rerun()
         if all_names:
             st.markdown(pd.DataFrame(all_names).to_html(index=False, classes="rtl-table"), unsafe_allow_html=True)
+            
+    with tab4:
+        st.write("כמה שמות סימן כל משתמש בכל החדרים:")
+        if st.button("🔄 רענן נתונים"):
+            st.rerun()
+        
+        swipes_data = get_all_swipes_stats()
+        if not swipes_data:
+            st.info("אין עדיין החלקות במערכת.")
+        else:
+            df_s = pd.DataFrame(swipes_data)
+            stats_df = df_s.groupby(['room_code', 'user_name']).size().reset_index(name='count')
+            stats_df = stats_df.rename(columns={'room_code': 'חדר', 'user_name': 'משתמש', 'count': 'כמות שמות שסומנו (אהב/פסל)'})
+            stats_df = stats_df.sort_values(by=['חדר', 'כמות שמות שסומנו (אהב/פסל)'], ascending=[True, False])
+            st.markdown(stats_df.to_html(index=False, classes="rtl-table"), unsafe_allow_html=True)
+            
     st.stop()
 
 # --- מסך התחברות רגיל ---
@@ -277,7 +309,7 @@ if not st.session_state.room_code or not st.session_state.user_name:
                 st.warning("נא למלא חדר ושם.")
                 
     st.markdown("<br><br>", unsafe_allow_html=True)
-    with st.expander("🔐 פאנל מנהל (להוספת שמות למאגר)"):
+    with st.expander("🔐 פאנל מנהל"):
         pwd = st.text_input("סיסמה", type="password")
         if st.button("התחבר מנהל"):
             if pwd == ADMIN_PASSWORD:
@@ -402,7 +434,7 @@ elif st.session_state.match_alert:
     st.session_state.match_alert = None
 
 
-# --- ניתוב למסכים ---
+# --- ניתוב למ מסכים ---
 
 # --- מסך התאמות ---
 if st.session_state.view_mode == "matches":
