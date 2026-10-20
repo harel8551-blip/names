@@ -117,7 +117,8 @@ def get_all_swipes_stats():
                 break
             start += batch_size
         return all_data
-    except Exception:
+    except Exception as e:
+        st.error(f"שגיאה במשיכת הנתונים למנהל: {e}")
         return []
 
 def get_room_users(room):
@@ -278,13 +279,29 @@ if st.session_state.is_admin:
         
         swipes_data = get_all_swipes_stats()
         if not swipes_data:
-            st.info("אין עדיין החלקות במערכת.")
+            st.info("אין עדיין החלקות במערכת או שהטבלה ריקה.")
         else:
-            df_s = pd.DataFrame(swipes_data)
-            stats_df = df_s.groupby(['room_code', 'user_name']).size().reset_index(name='count')
-            stats_df = stats_df.rename(columns={'room_code': 'חדר', 'user_name': 'משתמש', 'count': 'כמות שמות שסומנו (אהב/פסל)'})
-            stats_df = stats_df.sort_values(by=['חדר', 'כמות שמות שסומנו (אהב/פסל)'], ascending=[True, False])
-            st.markdown(stats_df.to_html(index=False, classes="rtl-table"), unsafe_allow_html=True)
+            # פתרון מותאם לפייתון נקי במקום גרופ-ביי של פנדס, מונע מחיקת שורות ריקות!
+            stats = {}
+            for row in swipes_data:
+                r = row.get("room_code")
+                u = row.get("user_name")
+                
+                # אם הערך ריק במסד הנתונים נחליף אותו במחרוזת חלופית
+                if not r: r = "חדר לא ידוע"
+                if not u: u = "משתמש לא ידוע"
+                
+                key = (r, u)
+                stats[key] = stats.get(key, 0) + 1
+                
+            rows = [{"חדר": k[0], "משתמש": k[1], "כמות שמות שסומנו (אהב/פסל)": v} for k, v in stats.items()]
+            stats_df = pd.DataFrame(rows)
+            
+            if not stats_df.empty:
+                stats_df = stats_df.sort_values(by=["חדר", "כמות שמות שסומנו (אהב/פסל)"], ascending=[True, False])
+                st.markdown(stats_df.to_html(index=False, classes="rtl-table"), unsafe_allow_html=True)
+            else:
+                st.warning("לא הצלחנו לייצר את הטבלה למרות שיש נתונים. (פנה לתמיכה)")
             
     st.stop()
 
