@@ -56,41 +56,72 @@ def get_matches(room):
         for row in data:
             b_name = row["baby_name"]
             if b_name not in name_likes:
-                name_likes[b_name] = []
-            name_likes[b_name].append({
-                "name": row["user_name"], 
-                "role": row.get("role") or "אחר"
-            })
+                name_likes[b_name] = {"users": [], "roles": []}
+            
+            # מניעת כפילויות אם אותו משתמש החליק פעמיים
+            if row["user_name"] not in name_likes[b_name]["users"]:
+                name_likes[b_name]["users"].append(row["user_name"])
+                name_likes[b_name]["roles"].append(row.get("role") or "אחר")
             
         parent_matches = []
         family_matches = []
         
-        for b_name, users in name_likes.items():
-            roles = [u["role"] for u in users]
-            names_and_roles = ", ".join([f"{u['name']} ({u['role']})" for u in users])
-            count = len(users)
+        for b_name, info in name_likes.items():
+            users = info["users"]
+            roles = info["roles"]
             
             has_aba = "אבא" in roles
             has_ima = "אמא" in roles
             has_family = any(r not in ["אבא", "אמא"] for r in roles)
             
-            # אם אבא ואמא הסכימו - זו התאמה זוגית מוחלטת
+            # חיבור שמות בלבד (בלי תפקידים)
+            users_str = ", ".join(users)
+            
+            # אם אבא ואמא הסכימו - זו התאמה זוגית
             if has_aba and has_ima:
-                parent_matches.append((b_name, names_and_roles, count))
-            # אם לפחות אחד מההורים אהב, ועוד מישהו מהמשפחה אהב
+                parent_matches.append({"name": b_name, "users": users_str})
+            # אם אחד ההורים + משפחה
             elif (has_aba or has_ima) and has_family:
-                family_matches.append((b_name, names_and_roles, count))
+                family_matches.append({"name": b_name, "users": users_str})
                 
         return parent_matches, family_matches
     except Exception as e:
         return [], []
 
-# --- אתחול משתני סשן ---
-for key in ["room_code", "user_name", "user_role", "selected_category", "current_index", "is_admin"]:
-    if key not in st.session_state:
-        st.session_state[key] = "" if key in ["room_code", "user_name", "user_role"] else (False if key == "is_admin" else (0 if key == "current_index" else None))
+# פונקציית עזר לבניית טבלת נתונים יפה למסכי ההתאמות
+def build_matches_df(matches_list, names_db):
+    # יצירת מילון מהיר לחיפוש נתוני השם
+    db_dict = {item["name"]: item for item in names_db}
+    
+    rows = []
+    for m in matches_list:
+        b_name = m["name"]
+        info = db_dict.get(b_name, {})
+        rows.append({
+            "שם": b_name,
+            "קטגוריה": info.get("category", "לא צוין"),
+            "משמעות": info.get("meaning", "אין פירוש"),
+            "מי הסכים": m["users"]
+        })
+    return pd.DataFrame(rows)
 
-# --- סרגל צדדי ופאנל מנהל ---
+
+# --- אתחול משתני סשן ---
+# הוספנו את view_mode כדי לדעת איזה מסך להציג (החלקה / טבלת זוגיות / טבלת משפחה)
+for key in ["room_code", "user_name", "user_role", "selected_category", "current_index", "is_admin", "view_mode"]:
+    if key not in st.session_state:
+        if key in ["room_code", "user_name", "user_role"]:
+            st.session_state[key] = ""
+        elif key == "is_admin":
+            st.session_state[key] = False
+        elif key == "current_index":
+            st.session_state[key] = 0
+        elif key == "view_mode":
+            st.session_state[key] = "swipe"
+        else:
+            st.session_state[key] = None
+
+# --- פאנל מנהל (סרגל צד) ---
 with st.sidebar.expander("🔐 פאנל מנהל (להוספת שמות)"):
     if not st.session_state.is_admin:
         pwd = st.text_input("סיסמה", type="password")
@@ -148,7 +179,7 @@ if not st.session_state.room_code or not st.session_state.user_name:
     st.title("👶 בוחנים שמות יחד")
     with st.form("login_form"):
         room = st.text_input("קוד חדר משותף (אותו קוד לכל המשפחה)").strip().lower()
-        user = st.text_input("השם שלך").strip()
+        user = st.text_input("השם שלך (למשל: הראל, אורלי)").strip()
         role = st.selectbox("התפקיד שלך במשפחה", ["אבא", "אמא", "סבא", "סבתא", "דוד", "דודה", "אח/ות", "אחר"])
         
         if st.form_submit_button("היכנס וסנן שמות"):
@@ -161,80 +192,107 @@ if not st.session_state.room_code or not st.session_state.user_name:
                 st.warning("נא למלא חדר ושם.")
     st.stop()
 
-# --- ממשק החלקה ותצוגת סרגל צד ---
+# --- ניווט בסרגל הצד ---
 st.sidebar.title(f"👤 {st.session_state.user_name} ({st.session_state.user_role})")
 st.sidebar.caption(f"חדר משפחתי: {st.session_state.room_code}")
-if st.sidebar.button("🏠 חזרה לקטגוריות", use_container_width=True):
-    st.session_state.selected_category = None
-    st.session_state.current_index = 0
+
+st.sidebar.markdown("---")
+st.sidebar.subheader("📊 התאמות")
+
+if st.sidebar.button("💘 התאמה זוגית מושלמת", use_container_width=True):
+    st.session_state.view_mode = "parent_matches"
+    st.rerun()
+
+if st.sidebar.button("👨‍👩‍👧‍👦 אהוב על המשפחה", use_container_width=True):
+    st.session_state.view_mode = "family_matches"
     st.rerun()
 
 st.sidebar.markdown("---")
 
-parent_matches, family_matches = get_matches(st.session_state.room_code)
+if st.sidebar.button("🏠 חזרה להחלקה על שמות", use_container_width=True):
+    st.session_state.view_mode = "swipe"
+    st.session_state.selected_category = None
+    st.session_state.current_index = 0
+    st.rerun()
 
-# אזור 1: התאמות זוגיות (ההורים)
-st.sidebar.subheader("💘 התאמה זוגית מושלמת")
-if parent_matches:
-    for m, users_str, count in parent_matches:
-        st.sidebar.success(f"**{m}**\n\n*{users_str}* ({count} לייקים)")
-else:
-    st.sidebar.info("אבא ואמא עדיין לא הסכימו על שם.")
-
-# אזור 2: תמיכה משפחתית (הורה + משפחה)
-st.sidebar.subheader("👨‍👩‍👧‍👦 אהוב על המשפחה")
-if family_matches:
-    for m, users_str, count in family_matches:
-        st.sidebar.warning(f"**{m}**\n\n*{users_str}* ({count} לייקים)")
-else:
-    st.sidebar.info("אין עדיין שמות עם תמיכה משפחתית.")
-
+# משיכת מאגר השמות הכללי לשימוש בכל המסכים
 NAMES_DB = fetch_all_names()
-
 if not NAMES_DB:
     st.warning("המאגר ריק. היכנס לפאנל המנהל בסרגל הצד כדי להוסיף שמות.")
     st.stop()
 
-# --- בחירת קטגוריה ---
-if st.session_state.selected_category is None:
-    st.title("בחר קטגוריה 📂")
-    categories = sorted(list(set([item["category"] for item in NAMES_DB])))
-    for cat in categories:
-        count = sum(1 for item in NAMES_DB if item["category"] == cat)
-        if st.button(f"{cat} ({count} שמות)", use_container_width=True):
-            st.session_state.selected_category = cat
-            st.session_state.current_index = 0
-            st.rerun()
-else:
-    cat = st.session_state.selected_category
-    names_in_cat = [item for item in NAMES_DB if item["category"] == cat]
-    st.title(f"✨ {cat}")
+# ==========================================
+# ראוטינג (ניתוב) לפי מה שהמשתמש בחר בסרגל
+# ==========================================
+
+# 1. מסך התאמות זוגיות (טבלה)
+if st.session_state.view_mode == "parent_matches":
+    st.title("💘 התאמה זוגית מושלמת")
+    st.write("כאן מופיעים כל השמות שגם אבא וגם אמא הסכימו עליהם.")
     
-    if st.session_state.current_index < len(names_in_cat):
-        curr = names_in_cat[st.session_state.current_index]
-        st.markdown(f"""
-        <div style="padding: 30px; border-radius: 15px; border: 2px solid #ff4b4b; text-align: center; background-color: #fafafa; margin-bottom: 20px;">
-            <h1 style="color: #ff4b4b; font-size: 48px;">{curr['name']}</h1>
-            <p style="font-size: 18px; color: #555;"><b>משמעות:</b> {curr.get('meaning', '')}</p>
-            <p style="font-size: 14px; color: #888;">מין: {curr['gender']}</p>
-        </div>
-        """, unsafe_allow_html=True)
-        
-        col1, col2 = st.columns(2)
-        with col1:
-            if st.button("❌ פחות בכיוון", use_container_width=True):
-                st.session_state.current_index += 1
-                st.rerun()
-        with col2:
-            if st.button("❤️ אהבתי", use_container_width=True):
-                save_swipe(st.session_state.room_code, st.session_state.user_name, st.session_state.user_role, curr["name"], cat)
-                st.session_state.current_index += 1
-                st.rerun()
-                
-        st.progress((st.session_state.current_index + 1) / len(names_in_cat))
+    p_matches, _ = get_matches(st.session_state.room_code)
+    
+    if p_matches:
+        df = build_matches_df(p_matches, NAMES_DB)
+        # הצגת הטבלה המלאה על המסך
+        st.dataframe(df, use_container_width=True, hide_index=True)
     else:
-        st.success("סיימת את הקטגוריה הזו!")
-        if st.button("בחר קטגוריה אחרת"):
-            st.session_state.selected_category = None
-            st.session_state.current_index = 0
-            st.rerun()
+        st.info("עדיין אין הסכמה זוגית על אף שם. המשיכו להחליק!")
+
+# 2. מסך התאמות משפחתיות (טבלה)
+elif st.session_state.view_mode == "family_matches":
+    st.title("👨‍👩‍👧‍👦 אהוב על המשפחה")
+    st.write("שמות שלפחות אחד מההורים אהב, ועוד מישהו מהמשפחה תמך בהם.")
+    
+    _, f_matches = get_matches(st.session_state.room_code)
+    
+    if f_matches:
+        df = build_matches_df(f_matches, NAMES_DB)
+        st.dataframe(df, use_container_width=True, hide_index=True)
+    else:
+        st.info("עדיין אין שמות עם תמיכה משפחתית משולבת.")
+
+# 3. מסך ההחלקה הראשי (Tinder-Style)
+elif st.session_state.view_mode == "swipe":
+    if st.session_state.selected_category is None:
+        st.title("בחר קטגוריה 📂")
+        categories = sorted(list(set([item["category"] for item in NAMES_DB])))
+        for cat in categories:
+            count = sum(1 for item in NAMES_DB if item["category"] == cat)
+            if st.button(f"{cat} ({count} שמות)", use_container_width=True):
+                st.session_state.selected_category = cat
+                st.session_state.current_index = 0
+                st.rerun()
+    else:
+        cat = st.session_state.selected_category
+        names_in_cat = [item for item in NAMES_DB if item["category"] == cat]
+        st.title(f"✨ {cat}")
+        
+        if st.session_state.current_index < len(names_in_cat):
+            curr = names_in_cat[st.session_state.current_index]
+            st.markdown(f"""
+            <div style="padding: 30px; border-radius: 15px; border: 2px solid #ff4b4b; text-align: center; background-color: #fafafa; margin-bottom: 20px;">
+                <h1 style="color: #ff4b4b; font-size: 48px;">{curr['name']}</h1>
+                <p style="font-size: 18px; color: #555;"><b>משמעות:</b> {curr.get('meaning', 'אין פירוש')}</p>
+                <p style="font-size: 14px; color: #888;">מין: {curr['gender']}</p>
+            </div>
+            """, unsafe_allow_html=True)
+            
+            col1, col2 = st.columns(2)
+            with col1:
+                if st.button("❌ פחות בכיוון", use_container_width=True):
+                    st.session_state.current_index += 1
+                    st.rerun()
+            with col2:
+                if st.button("❤️ אהבתי", use_container_width=True):
+                    save_swipe(st.session_state.room_code, st.session_state.user_name, st.session_state.user_role, curr["name"], cat)
+                    st.session_state.current_index += 1
+                    st.rerun()
+                    
+            st.progress((st.session_state.current_index + 1) / len(names_in_cat))
+        else:
+            st.success("סיימת את הקטגוריה הזו!")
+            if st.button("בחר קטגוריה אחרת"):
+                st.session_state.selected_category = None
+                st.session_state.current_index = 0
+                st.rerun()
