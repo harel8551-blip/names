@@ -20,16 +20,18 @@ st.markdown(
         text-align: right !important;
     }
     
-    /* הזזת סרגל הצד (Sidebar) לצד ימין */
+    /* הזזת סרגל הצד (Sidebar) לצד ימין וביטול אנימציית הסגירה השבורה */
     [data-testid="stSidebar"] {
         right: 0 !important;
         left: auto !important;
+        transition: none !important; /* הופך את הפתיחה/סגירה למיידית ונקייה */
     }
     
     /* הזזת כפתור הפתיחה/סגירה של סרגל הצד שמאלה כדי שלא יוסתר */
     [data-testid="collapsedControl"] {
         right: auto !important;
         left: 1rem !important;
+        transition: none !important;
     }
     
     /* יישור התראות לימין */
