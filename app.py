@@ -25,7 +25,7 @@ st.markdown(
         font-weight: bold !important;
     }
     
-    /* --- עיצוב מושלם וברור לטבלאות (טקסט שחור וברור) --- */
+    /* --- עיצוב מושלם וברור לטבלאות --- */
     .rtl-table {
         width: 100%; direction: rtl; text-align: right; border-collapse: collapse;
         font-family: sans-serif; margin-top: 10px; margin-bottom: 20px; background-color: #ffffff;
@@ -289,7 +289,6 @@ if st.session_state.is_admin:
         if not swipes_data:
             st.info("אין עדיין החלקות במערכת או שהטבלה ריקה.")
         else:
-            # מִבְנֶה נתונים לפי חדרים
             rooms_dict = {}
             for row in swipes_data:
                 r = row.get("room_code")
@@ -301,7 +300,6 @@ if st.session_state.is_admin:
                     rooms_dict[r] = {}
                 rooms_dict[r][u] = rooms_dict[r].get(u, 0) + 1
             
-            # הצגת כל חדר בתוך אקורדיון נפרד
             for room_code, users_counts in sorted(rooms_dict.items()):
                 with st.expander(f"🏠 חדר: {room_code}"):
                     rows = [{"משתמש": u, "כמות שמות שסומנו (אהב/פסל)": cnt} for u, cnt in sorted(users_counts.items(), key=lambda x: x[1], reverse=True)]
@@ -310,23 +308,31 @@ if st.session_state.is_admin:
             
     st.stop()
 
-# --- מסך התחברות רגיל ---
+# --- מסך התחברות רגיל (עם סיסמה מוגנת לאבא ואמא) ---
 if not st.session_state.room_code or not st.session_state.user_name:
     st.title("👶 בוחנים שמות יחד")
     with st.form("login_form"):
         room = st.text_input("קוד חדר משותף (אותו קוד לכל המשפחה)").strip().lower()
         user = st.text_input("השם שלך (למשל: הראל, טליה)").strip()
         role = st.selectbox("התפקיד שלך במשפחה", ["אבא", "אמא", "סבא", "סבתא", "דוד", "דודה", "אח/ות", "אחר"])
+        
+        parent_pwd = ""
+        if role in ["אבא", "אמא"]:
+            parent_pwd = st.text_input("סיסמת כניסה (חובה לאבא ואמא)", type="password")
+
         if st.form_submit_button("היכנס לחדר", type="primary"):
             if room and user:
-                success, msg = check_and_register_user(room, user, role)
-                if success:
-                    st.session_state.room_code = room
-                    st.session_state.user_name = user
-                    st.session_state.user_role = role
-                    st.rerun()
+                if role in ["אבא", "אמא"] and parent_pwd != "הראלהמלך":
+                    st.error("❌ סיסמה שגויה לתפקיד אבא/אמא! אנא הזן את הסיסמה הנכונה.")
                 else:
-                    st.error(msg)
+                    success, msg = check_and_register_user(room, user, role)
+                    if success:
+                        st.session_state.room_code = room
+                        st.session_state.user_name = user
+                        st.session_state.user_role = role
+                        st.rerun()
+                    else:
+                        st.error(msg)
             else:
                 st.warning("נא למלא חדר ושם.")
                 
@@ -359,17 +365,14 @@ parent_matches, family_matches = get_matches_local(room_swipes)
 current_pms = set(pm["name"] for pm in parent_matches)
 current_fms = set(fm["name"] for fm in family_matches)
 
-# אתחול הזיכרון פעם אחת כדי לא להקפיץ הכל בכניסה הראשונה
 if "notified_pms" not in st.session_state:
     st.session_state.notified_pms = current_pms.copy()
 if "notified_fms" not in st.session_state:
     st.session_state.notified_fms = current_fms.copy()
 
-# זיהוי התאמות חדשות שנוצרו (על ידינו או על ידי בן משפחה אחר)
 new_pms = current_pms - st.session_state.notified_pms
 new_fms = current_fms - st.session_state.notified_fms
 
-# אם יש התאמה זוגית חדשה - נכין אותה לפופאפ (אחת בכל פעם)
 if new_pms and not st.session_state.perfect_match_alert:
     pm_name = list(new_pms)[0]
     gender = "יוניסקס"
@@ -380,7 +383,6 @@ if new_pms and not st.session_state.perfect_match_alert:
     st.session_state.perfect_match_alert = {"name": pm_name, "gender": gender}
     st.session_state.notified_pms.add(pm_name)
 
-# אם יש התאמה משפחתית חדשה
 elif new_fms and not st.session_state.match_alert:
     fm_name = list(new_fms)[0]
     users_str = ""
@@ -393,41 +395,69 @@ elif new_fms and not st.session_state.match_alert:
 
 
 # ==========================================
-# תפריט הניווט העליון (מותאם לרשת של 2x2)
+# תפריט הניווט העליון (מותאם לפי הרשאות: הורים רואים התאמות, שאר המשפחה לא)
 # ==========================================
 users_str = " | ".join([f"{u['user_name']} ({u['role']})" for u in room_users])
 st.markdown(f"<div style='text-align:center; color:#888; font-size: 13px; margin-bottom: 12px; background:#f8f9fa; padding: 5px; border-radius: 8px;'>👥 <b>מחוברים כרגע בחדר {st.session_state.room_code}:</b><br>{users_str}</div>", unsafe_allow_html=True)
 
-menu_col1, menu_col2 = st.columns(2)
-with menu_col1:
-    if st.button("📂 קטגוריות", use_container_width=True):
-        st.session_state.view_mode = "swipe"
-        st.session_state.selected_category = None
-        st.session_state.sort_order = None
-        st.session_state.last_swiped_name = None 
-        st.session_state.force_next_name = None
-        st.rerun()
-with menu_col2:
-    if st.button("🔍 חיפוש חופשי", use_container_width=True):
-        st.session_state.view_mode = "search"
-        st.session_state.search_query = "" 
-        st.session_state.last_swiped_name = None
-        st.session_state.force_next_name = None
-        st.rerun()
+is_parent = st.session_state.user_role in ["אבא", "אמא"]
 
-menu_col3, menu_col4 = st.columns(2)
-with menu_col3:
-    if st.button("👑 התאמות", use_container_width=True):
-        st.session_state.view_mode = "matches"
-        st.session_state.last_swiped_name = None
-        st.session_state.force_next_name = None
-        st.rerun()
-with menu_col4:
-    if st.button("👶 אהבתי", use_container_width=True):
-        st.session_state.view_mode = "my_likes"
-        st.session_state.last_swiped_name = None
-        st.session_state.force_next_name = None
-        st.rerun()
+if is_parent:
+    menu_col1, menu_col2 = st.columns(2)
+    with menu_col1:
+        if st.button("📂 קטגוריות", use_container_width=True):
+            st.session_state.view_mode = "swipe"
+            st.session_state.selected_category = None
+            st.session_state.sort_order = None
+            st.session_state.last_swiped_name = None 
+            st.session_state.force_next_name = None
+            st.rerun()
+    with menu_col2:
+        if st.button("🔍 חיפוש חופשי", use_container_width=True):
+            st.session_state.view_mode = "search"
+            st.session_state.search_query = "" 
+            st.session_state.last_swiped_name = None
+            st.session_state.force_next_name = None
+            st.rerun()
+
+    menu_col3, menu_col4 = st.columns(2)
+    with menu_col3:
+        if st.button("👑 התאמות", use_container_width=True):
+            st.session_state.view_mode = "matches"
+            st.session_state.last_swiped_name = None
+            st.session_state.force_next_name = None
+            st.rerun()
+    with menu_col4:
+        if st.button("👶 אהבתי", use_container_width=True):
+            st.session_state.view_mode = "my_likes"
+            st.session_state.last_swiped_name = None
+            st.session_state.force_next_name = None
+            st.rerun()
+else:
+    # למשתמשים שאינם הורים - 3 כפתורים בלבד (ללא התאמות)
+    menu_col1, menu_col2, menu_col3 = st.columns(3)
+    with menu_col1:
+        if st.button("📂 קטגוריות", use_container_width=True):
+            st.session_state.view_mode = "swipe"
+            st.session_state.selected_category = None
+            st.session_state.sort_order = None
+            st.session_state.last_swiped_name = None 
+            st.session_state.force_next_name = None
+            st.rerun()
+    with menu_col2:
+        if st.button("🔍 חיפוש חופשי", use_container_width=True):
+            st.session_state.view_mode = "search"
+            st.session_state.search_query = "" 
+            st.session_state.last_swiped_name = None
+            st.session_state.force_next_name = None
+            st.rerun()
+    with menu_col3:
+        if st.button("👶 אהבתי", use_container_width=True):
+            st.session_state.view_mode = "my_likes"
+            st.session_state.last_swiped_name = None
+            st.session_state.force_next_name = None
+            st.rerun()
+
 st.markdown("---")
 
 # ==========================================
@@ -458,20 +488,23 @@ elif st.session_state.match_alert:
 
 # --- ניתוב למסכים ---
 
-# --- מסך התאמות ---
+# --- מסך התאמות (מוגן רק להורים) ---
 if st.session_state.view_mode == "matches":
-    st.title("ההתאמות בחדר 👑")
-    t1, t2 = st.tabs(["💘 התאמה זוגית מושלמת", "👨‍👩‍👧‍👦 אהוב על המשפחה"])
-    with t1:
-        if parent_matches:
-            st.markdown(build_matches_df(parent_matches, NAMES_DB).to_html(index=False, classes="rtl-table"), unsafe_allow_html=True)
-        else:
-            st.info("עדיין אין הסכמה זוגית על אף שם.")
-    with t2:
-        if family_matches:
-            st.markdown(build_matches_df(family_matches, NAMES_DB).to_html(index=False, classes="rtl-table"), unsafe_allow_html=True)
-        else:
-            st.info("עדיין אין שמות עם תמיכה משפחתית משולבת.")
+    if not is_parent:
+        st.error("🚫 אזור ההתאמות מיועד לאבא ואמא בלבד!")
+    else:
+        st.title("ההתאמות בחדר 👑")
+        t1, t2 = st.tabs(["💘 התאמה זוגית מושלמת", "👨‍👩‍👧‍👦 אהוב על המשפחה"])
+        with t1:
+            if parent_matches:
+                st.markdown(build_matches_df(parent_matches, NAMES_DB).to_html(index=False, classes="rtl-table"), unsafe_allow_html=True)
+            else:
+                st.info("עדיין אין הסכמה זוגית על אף שם.")
+        with t2:
+            if family_matches:
+                st.markdown(build_matches_df(family_matches, NAMES_DB).to_html(index=False, classes="rtl-table"), unsafe_allow_html=True)
+            else:
+                st.info("עדיין אין שמות עם תמיכה משפחתית משולבת.")
 
 # --- מסך שמות שאהבתי ---
 elif st.session_state.view_mode == "my_likes":
@@ -669,7 +702,6 @@ elif st.session_state.view_mode == "swipe":
             rng = random.Random(st.session_state.random_seed)
             rng.shuffle(unswiped_names_in_cat)
 
-        # כפיית השם שהתחרטנו עליו להופיע ראשון
         if st.session_state.force_next_name:
             for i, item in enumerate(unswiped_names_in_cat):
                 if item["name"] == st.session_state.force_next_name:
