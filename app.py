@@ -1,5 +1,6 @@
 import pandas as pd
 import streamlit as st
+import streamlit.components.v1 as components
 from supabase import Client, create_client
 import io
 import random
@@ -128,12 +129,10 @@ def check_and_register_user(room, user, role):
     except Exception as e:
         return False, f"שגיאת מסד נתונים: {e}"
 
-# --- הפתרון לבאג: מחיקת ההצבעה הישנה לפני שמירת החדשה ---
 def save_swipe(room, user, role, baby_name, category, status):
     try:
-        # 1. מחיקת ההצבעה הישנה של המשתמש לשם הזה (אם קיימת)
+        # קודם מוחקים בחירה קודמת כדי למנוע באגים, ואז שומרים בחירה חדשה
         supabase.table("swipes").delete().eq("room_code", room).eq("user_name", user).eq("baby_name", baby_name).execute()
-        # 2. הכנסת הבחירה העדכנית
         supabase.table("swipes").insert({
             "room_code": room, "user_name": user, "role": role, "baby_name": baby_name, "category": category, "status": status
         }).execute()
@@ -329,7 +328,7 @@ with menu_col3:
         st.session_state.view_mode = "matches"
         st.rerun()
 with menu_col4:
-    if st.button("💖 אהבתי", use_container_width=True):
+    if st.button("👶 אהבתי", use_container_width=True):
         st.session_state.view_mode = "my_likes"
         st.rerun()
 st.markdown("---")
@@ -384,7 +383,7 @@ if st.session_state.view_mode == "matches":
 
 # --- מסך שמות שאהבתי ---
 elif st.session_state.view_mode == "my_likes":
-    st.title("💖 השמות שאהבתי")
+    st.title("👶 השמות שאהבתי")
     st.write("עברת על השמות והתחרטת? אפשר להסיר אותם כדי שלא יופיעו בהתאמות.")
     
     my_liked_names = get_my_likes_local(room_swipes, st.session_state.user_name)
@@ -409,10 +408,10 @@ elif st.session_state.view_mode == "search":
     st.title("🔍 חיפוש שם ספציפי")
     st.write("פספסת שם בטעות או שיש לך משהו בראש? הקלד כאן ותוכל לסמן אותו מיד.")
 
-    search_q = st.text_input("הקלד שם או חלק ממנו...").strip()
+    search_q = st.text_input("הקלד שם או חלק ממנו...", key="search_query")
     
-    if search_q:
-        results = [item for item in NAMES_DB if search_q in item["name"]]
+    if search_q.strip():
+        results = [item for item in NAMES_DB if search_q.strip() in item["name"]]
         if not results:
             st.warning("לא מצאנו שם כזה במאגר. נסה כתיב שונה.")
         else:
@@ -422,13 +421,13 @@ elif st.session_state.view_mode == "search":
             
             for curr in results[:20]:
                 status = my_swipes_dict.get(curr["name"], "טרם סומן")
-                status_text = "❤️ אהבת" if status == "like" else ("❌ פסלת" if status == "reject" else "טרם סומן")
+                status_text = "👶 אהבת" if status == "like" else ("❌ פסלת" if status == "reject" else "טרם סומן")
                 
                 st.markdown(f"""
                 <div style="padding: 15px; border-radius: 10px; border: 1px solid #ddd; background-color: #fafafa; margin-bottom: 10px;">
                     <h3 style="color: #ff4b4b; margin: 0; font-size: 24px;">{curr['name']} ({curr['gender']})</h3>
                     <p style="margin: 5px 0; color: #555;">{curr.get('meaning', 'אין פירוש')}</p>
-                    <p style="margin: 0; font-size: 14px; font-weight: bold; color: #888;">סטטוס נוכחי שלך: <span style="color: {'#ff4b4b' if status == 'like' else '#333'}">{status_text}</span></p>
+                    <p style="margin: 0; font-size: 14px; font-weight: bold; color: #888;">סטטוס נוכחי שלך: <span style="color: {'#28a745' if status == 'like' else '#dc3545' if status == 'reject' else '#333'}">{status_text}</span></p>
                 </div>
                 """, unsafe_allow_html=True)
                 
@@ -436,10 +435,10 @@ elif st.session_state.view_mode == "search":
                 with c1:
                     if st.button("❌ החלף ל-פסילה", key=f"rej_{curr['name']}", use_container_width=True):
                         save_swipe(st.session_state.room_code, st.session_state.user_name, st.session_state.user_role, curr["name"], curr.get("category", "חיפוש"), "reject")
-                        st.session_state.view_mode = "my_likes" # זורק ישר למסך השמות שאהבתי
+                        st.session_state.view_mode = "my_likes"
                         st.rerun()
                 with c2:
-                    if st.button("❤️ החלף ל-אהבתי", key=f"lik_{curr['name']}", use_container_width=True, type="primary"):
+                    if st.button("👶 החלף ל-אהבתי!", key=f"lik_{curr['name']}", use_container_width=True):
                         other_likes_data = [x for x in room_swipes if x["baby_name"] == curr["name"] and x["status"] == "like" and x["user_name"] != st.session_state.user_name]
                         save_swipe(st.session_state.room_code, st.session_state.user_name, st.session_state.user_role, curr["name"], curr.get("category", "חיפוש"), "like")
                         
@@ -456,7 +455,7 @@ elif st.session_state.view_mode == "search":
                         elif other_names:
                             st.session_state.match_alert = f"🎉 התאמה על השם '{curr['name']}' עם: {', '.join(set(other_names))}!"
                         
-                        st.session_state.view_mode = "my_likes" # זורק ישר למסך השמות שאהבתי
+                        st.session_state.view_mode = "my_likes"
                         st.rerun()
                 st.markdown("<br>", unsafe_allow_html=True)
 
@@ -487,7 +486,7 @@ elif st.session_state.view_mode == "swipe":
     if st.session_state.selected_category is None:
         st.title(f"חיפוש שמות ל{st.session_state.selected_gender} 📂")
         
-        if st.button(f"🎲 רוצה פשוט להחליק? (מעורבב)", use_container_width=True, type="primary"):
+        if st.button(f"🎲 רוצה פשוט להחליק? (מעורבב)", use_container_width=True):
             st.session_state.selected_category = "GLOBAL_RANDOM"
             st.session_state.sort_order = "random"
             st.session_state.random_seed = random.randint(1, 100000)
@@ -541,7 +540,7 @@ elif st.session_state.view_mode == "swipe":
         st.markdown("<br>", unsafe_allow_html=True)
         col_r, col_a = st.columns(2)
         with col_r:
-            if st.button("🔀 באקראי\n\n(הכי כיף)", use_container_width=True, type="primary"):
+            if st.button("🔀 באקראי\n\n(הכי כיף)", use_container_width=True):
                 st.session_state.sort_order = "random"
                 st.session_state.random_seed = random.randint(1, 100000)
                 st.rerun()
@@ -597,7 +596,7 @@ elif st.session_state.view_mode == "swipe":
                     save_swipe(st.session_state.room_code, st.session_state.user_name, st.session_state.user_role, curr["name"], display_title, "reject")
                     st.rerun()
             with col2:
-                if st.button("❤️ אהבתי", use_container_width=True, type="primary"):
+                if st.button("👶 אהבתי!", use_container_width=True):
                     other_likes_data = [x for x in room_swipes if x["baby_name"] == curr["name"] and x["status"] == "like" and x["user_name"] != st.session_state.user_name]
                     save_swipe(st.session_state.room_code, st.session_state.user_name, st.session_state.user_role, curr["name"], display_title, "like")
                     
@@ -632,3 +631,34 @@ elif st.session_state.view_mode == "swipe":
                 st.session_state.selected_category = None
                 st.session_state.sort_order = None
                 st.rerun()
+
+# ==========================================
+# הזרקת קוד JavaScript לצביעת כפתורי ההחלקה (ירוק לאהבתי, אדום לפסילה)
+# שים לב! זה חייב להיות בסוף הקובץ כדי שיצבע את הכפתורים ברגע שהם מופיעים על המסך
+# ==========================================
+components.html(
+    """
+    <script>
+    setInterval(function() {
+        var buttons = window.parent.document.querySelectorAll('div[data-testid="stButton"] button');
+        buttons.forEach(function(btn) {
+            var text = btn.innerText.trim();
+            // צובע בירוק רק את כפתורי ה"אהבתי" של ההחלקה והחיפוש (עם סימן הקריאה)
+            if (text === '👶 אהבתי!' || text === '👶 החלף ל-אהבתי!') {
+                btn.style.backgroundColor = '#28a745';
+                btn.style.color = '#ffffff';
+                btn.style.borderColor = '#28a745';
+            } 
+            // צובע באדום את כפתורי ה"לא מתאים" של ההחלקה והחיפוש
+            else if (text === '❌ לא מתאים' || text === '❌ החלף ל-פסילה') {
+                btn.style.backgroundColor = '#dc3545';
+                btn.style.color = '#ffffff';
+                btn.style.borderColor = '#dc3545';
+            }
+        });
+    }, 100);
+    </script>
+    """,
+    height=0,
+    width=0,
+)
