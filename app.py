@@ -125,11 +125,20 @@ def check_and_register_user(room, user, role):
     try:
         res = supabase.table("room_users").select("user_name, role").eq("room_code", room).execute()
         users_in_room = res.data or []
+        
+        # 1. אם המשתמש כבר רשום בחדר - תן לו להיכנס בלי לנסות לשמור אותו מחדש
+        for u in users_in_room:
+            if u["user_name"] == user:
+                return True, ""
+                
+        # 2. אם זה משתמש חדש, נוודא שהתפקיד (אבא/אמא) לא תפוס
         if role in ["אבא", "אמא"]:
             for u in users_in_room:
-                if u["role"] == role and u["user_name"] != user:
+                if u["role"] == role:
                     return False, f"התפקיד '{role}' כבר תפוס על ידי '{u['user_name']}' בחדר הזה."
-        supabase.table("room_users").upsert({"room_code": room, "user_name": user, "role": role}).execute()
+        
+        # 3. שמירת המשתמש החדש במסד הנתונים
+        supabase.table("room_users").insert({"room_code": room, "user_name": user, "role": role}).execute()
         return True, ""
     except Exception as e:
         return False, f"שגיאת מסד נתונים: {e}"
@@ -220,6 +229,7 @@ def build_matches_df(matches_list, names_db):
     for m in matches_list:
         b_name = m["name"]
         info = db_dict.get(b_name, {})
+        # הוסר המין והקטגוריה לבקשתך
         rows.append({
             "שם": b_name,
             "משמעות": info.get("meaning", "אין פירוש"),
