@@ -192,14 +192,12 @@ def matches_gender_filter(item_gender, selected_filter):
     return True
 
 # --- אתחול משתני סשן ---
-for key in ["room_code", "user_name", "user_role", "selected_gender", "selected_category", "is_admin", "view_mode", "match_alert", "perfect_match_alert", "sort_order", "random_seed", "search_query"]:
+for key in ["room_code", "user_name", "user_role", "selected_gender", "selected_category", "is_admin", "view_mode", "match_alert", "perfect_match_alert", "sort_order", "random_seed"]:
     if key not in st.session_state:
         if key == "is_admin":
             st.session_state[key] = False
         elif key == "view_mode":
             st.session_state[key] = "swipe"
-        elif key == "search_query":
-            st.session_state[key] = ""
         else:
             st.session_state[key] = None
 
@@ -316,7 +314,6 @@ with menu_col1:
 with menu_col2:
     if st.button("🔍 חיפוש חופשי", use_container_width=True):
         st.session_state.view_mode = "search"
-        st.session_state.search_query = "" # מאפס את שורת החיפוש בכניסה
         st.rerun()
 
 menu_col3, menu_col4 = st.columns(2)
@@ -334,6 +331,34 @@ NAMES_DB = fetch_all_names()
 if not NAMES_DB:
     st.warning("המאגר ריק. התנתק והיכנס לפאנל המנהל כדי להוסיף שמות.")
     st.stop()
+
+# ==========================================
+# תצוגת פופ-אפ התאמות (גלובלי - עובד בכל מסך)
+# ==========================================
+if st.session_state.perfect_match_alert:
+    pm = st.session_state.perfect_match_alert
+    baby_emoji = "👦" if pm["gender"] == "זכר" else "👧" if pm["gender"] == "נקבה" else "👶"
+    st.balloons()
+    st.markdown(f"""
+    <div style="text-align: center; padding: 50px 20px; background: linear-gradient(135deg, #fdfbfb 0%, #ebedee 100%); border-radius: 20px; border: 3px solid #ff4b4b; box-shadow: 0 10px 20px rgba(0,0,0,0.1); margin-bottom: 30px; margin-top: 20px;">
+        <h1 style="font-size: 38px; color: #ff4b4b; margin-bottom: 10px;">🎉 התאמה זוגית מושלמת! 🎉</h1>
+        <h2 style="font-size: 26px; color: #333;">אבא ואמא הסכימו על השם: <br><br><b style="font-size: 40px; color: #ff4b4b;">{pm['name']}</b></h2>
+        <div style="font-size: 110px; animation: bounce 1s infinite; margin: 30px 0;">{baby_emoji}</div>
+        <style>@keyframes bounce {{ 0%, 100% {{ transform: translateY(0); }} 50% {{ transform: translateY(-30px); }} }}</style>
+    </div>
+    """, unsafe_allow_html=True)
+    if st.button("🚀 איזה יופי! המשך הלאה", use_container_width=True, type="primary"):
+        st.session_state.perfect_match_alert = None
+        st.rerun()
+    st.stop()
+
+elif st.session_state.match_alert:
+    st.toast(st.session_state.match_alert, icon="💘")
+    st.success(st.session_state.match_alert)
+    st.session_state.match_alert = None
+
+
+# --- ניתוב למסכים ---
 
 # --- מסך התאמות ---
 if st.session_state.view_mode == "matches":
@@ -376,33 +401,8 @@ elif st.session_state.view_mode == "my_likes":
 elif st.session_state.view_mode == "search":
     st.title("🔍 חיפוש שם ספציפי")
     st.write("פספסת שם בטעות או שיש לך משהו בראש? הקלד כאן ותוכל לסמן אותו מיד.")
-    
-    # תצוגת התאמה מושלמת אם קרתה תוך כדי החיפוש
-    if st.session_state.perfect_match_alert:
-        pm = st.session_state.perfect_match_alert
-        baby_emoji = "👦" if pm["gender"] == "זכר" else "👧" if pm["gender"] == "נקבה" else "👶"
-        st.balloons()
-        st.markdown(f"""
-        <div style="text-align: center; padding: 50px 20px; background: linear-gradient(135deg, #fdfbfb 0%, #ebedee 100%); border-radius: 20px; border: 3px solid #ff4b4b; box-shadow: 0 10px 20px rgba(0,0,0,0.1); margin-bottom: 30px; margin-top: 20px;">
-            <h1 style="font-size: 38px; color: #ff4b4b; margin-bottom: 10px;">🎉 התאמה זוגית מושלמת! 🎉</h1>
-            <h2 style="font-size: 26px; color: #333;">אבא ואמא הסכימו על השם: <br><br><b style="font-size: 40px; color: #ff4b4b;">{pm['name']}</b></h2>
-            <div style="font-size: 110px; animation: bounce 1s infinite; margin: 30px 0;">{baby_emoji}</div>
-            <style>@keyframes bounce {{ 0%, 100% {{ transform: translateY(0); }} 50% {{ transform: translateY(-30px); }} }}</style>
-        </div>
-        """, unsafe_allow_html=True)
-        if st.button("🚀 איזה יופי! חזור לחיפוש", use_container_width=True, type="primary"):
-            st.session_state.perfect_match_alert = None
-            st.rerun()
-        st.stop()
-        
-    elif st.session_state.match_alert:
-        st.toast(st.session_state.match_alert, icon="💘")
-        st.success(st.session_state.match_alert)
-        st.session_state.match_alert = None
 
-    # שורת החיפוש מחוברת למשתנה סשן כדי שנוכל לאפס אותה
-    st.text_input("הקלד שם או חלק ממנו...", key="search_query")
-    search_q = st.session_state.search_query.strip()
+    search_q = st.text_input("הקלד שם או חלק ממנו...").strip()
     
     if search_q:
         results = [item for item in NAMES_DB if search_q in item["name"]]
@@ -429,7 +429,7 @@ elif st.session_state.view_mode == "search":
                 with c1:
                     if st.button("❌ החלף ל-פסילה", key=f"rej_{curr['name']}", use_container_width=True):
                         save_swipe(st.session_state.room_code, st.session_state.user_name, st.session_state.user_role, curr["name"], curr.get("category", "חיפוש"), "reject")
-                        st.session_state.search_query = "" # מנקה את החיפוש מיד
+                        st.session_state.view_mode = "my_likes" # זורק ישר למסך השמות שאהבתי
                         st.rerun()
                 with c2:
                     if st.button("❤️ החלף ל-אהבתי", key=f"lik_{curr['name']}", use_container_width=True, type="primary"):
@@ -449,7 +449,7 @@ elif st.session_state.view_mode == "search":
                         elif other_names:
                             st.session_state.match_alert = f"🎉 התאמה על השם '{curr['name']}' עם: {', '.join(set(other_names))}!"
                         
-                        st.session_state.search_query = "" # מנקה את החיפוש מיד
+                        st.session_state.view_mode = "my_likes" # זורק ישר למסך השמות שאהבתי
                         st.rerun()
                 st.markdown("<br>", unsafe_allow_html=True)
 
@@ -574,29 +574,6 @@ elif st.session_state.view_mode == "swipe":
             rng.shuffle(unswiped_names_in_cat)
 
         st.subheader(f"✨ {display_title}")
-
-        # תצוגת התאמה מושלמת
-        if st.session_state.perfect_match_alert:
-            pm = st.session_state.perfect_match_alert
-            baby_emoji = "👦" if pm["gender"] == "זכר" else "👧" if pm["gender"] == "נקבה" else "👶"
-            st.balloons()
-            st.markdown(f"""
-            <div style="text-align: center; padding: 50px 20px; background: linear-gradient(135deg, #fdfbfb 0%, #ebedee 100%); border-radius: 20px; border: 3px solid #ff4b4b; box-shadow: 0 10px 20px rgba(0,0,0,0.1); margin-bottom: 30px; margin-top: 20px;">
-                <h1 style="font-size: 38px; color: #ff4b4b; margin-bottom: 10px;">🎉 התאמה זוגית מושלמת! 🎉</h1>
-                <h2 style="font-size: 26px; color: #333;">אבא ואמא הסכימו על השם: <br><br><b style="font-size: 40px; color: #ff4b4b;">{pm['name']}</b></h2>
-                <div style="font-size: 110px; animation: bounce 1s infinite; margin: 30px 0;">{baby_emoji}</div>
-                <style>@keyframes bounce {{ 0%, 100% {{ transform: translateY(0); }} 50% {{ transform: translateY(-30px); }} }}</style>
-            </div>
-            """, unsafe_allow_html=True)
-            if st.button("🚀 איזה יופי! המשך לשם הבא", use_container_width=True, type="primary"):
-                st.session_state.perfect_match_alert = None
-                st.rerun()
-            st.stop()
-            
-        elif st.session_state.match_alert:
-            st.toast(st.session_state.match_alert, icon="💘")
-            st.success(st.session_state.match_alert)
-            st.session_state.match_alert = None
         
         if len(unswiped_names_in_cat) > 0:
             curr = unswiped_names_in_cat[0]
