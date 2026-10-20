@@ -128,9 +128,13 @@ def check_and_register_user(room, user, role):
     except Exception as e:
         return False, f"שגיאת מסד נתונים: {e}"
 
+# --- הפתרון לבאג: מחיקת ההצבעה הישנה לפני שמירת החדשה ---
 def save_swipe(room, user, role, baby_name, category, status):
     try:
-        supabase.table("swipes").upsert({
+        # 1. מחיקת ההצבעה הישנה של המשתמש לשם הזה (אם קיימת)
+        supabase.table("swipes").delete().eq("room_code", room).eq("user_name", user).eq("baby_name", baby_name).execute()
+        # 2. הכנסת הבחירה העדכנית
+        supabase.table("swipes").insert({
             "room_code": room, "user_name": user, "role": role, "baby_name": baby_name, "category": category, "status": status
         }).execute()
     except Exception:
@@ -192,12 +196,14 @@ def matches_gender_filter(item_gender, selected_filter):
     return True
 
 # --- אתחול משתני סשן ---
-for key in ["room_code", "user_name", "user_role", "selected_gender", "selected_category", "is_admin", "view_mode", "match_alert", "perfect_match_alert", "sort_order", "random_seed"]:
+for key in ["room_code", "user_name", "user_role", "selected_gender", "selected_category", "is_admin", "view_mode", "match_alert", "perfect_match_alert", "sort_order", "random_seed", "search_query"]:
     if key not in st.session_state:
         if key == "is_admin":
             st.session_state[key] = False
         elif key == "view_mode":
             st.session_state[key] = "swipe"
+        elif key == "search_query":
+            st.session_state[key] = ""
         else:
             st.session_state[key] = None
 
@@ -314,6 +320,7 @@ with menu_col1:
 with menu_col2:
     if st.button("🔍 חיפוש חופשי", use_container_width=True):
         st.session_state.view_mode = "search"
+        st.session_state.search_query = "" # מאפס את שורת החיפוש בכניסה
         st.rerun()
 
 menu_col3, menu_col4 = st.columns(2)
