@@ -113,13 +113,14 @@ def fetch_room_swipes(room):
     except Exception:
         return []
 
-def get_all_swipes_stats():
+# משיכת כלל הנתונים עבור פאנל המנהל (לסטטיסטיקות ולהתאמות)
+def get_all_swipes():
     all_data = []
     batch_size = 1000
     start = 0
     try:
         while True:
-            res = supabase.table("swipes").select("room_code, user_name").range(start, start + batch_size - 1).execute()
+            res = supabase.table("swipes").select("room_code, user_name, role, baby_name, status").range(start, start + batch_size - 1).execute()
             data = res.data or []
             all_data.extend(data)
             if len(data) < batch_size:
@@ -250,7 +251,8 @@ if st.session_state.is_admin:
         st.session_state.is_admin = False
         st.rerun()
         
-    tab1, tab2, tab3, tab4 = st.tabs(["📤 טעינת רשימת טקסט", "➕ הוספה ידנית", "📋 מאגר קיים ואיפוס", "📊 סטטיסטיקות"])
+    tab1, tab2, tab3, tab4, tab5 = st.tabs(["📤 טעינת רשימה", "➕ הוספה", "📋 מאגר", "📊 סטטיסטיקות", "👑 התאמות במערכת"])
+    
     with tab1:
         st.write("הדבק כאן ישירות את תוכן ה-CSV (כולל שורת הכותרת `name,gender,category,meaning`):")
         pasted_text = st.text_area("טקסט ה-CSV", height=250)
@@ -269,6 +271,7 @@ if st.session_state.is_admin:
                         st.error("חסרות עמודות חובה.")
                 except Exception as e:
                     st.error(f"שגיאה: {e}")
+                    
     with tab2:
         with st.form("add_name"):
             n_name = st.text_input("שם")
@@ -278,6 +281,7 @@ if st.session_state.is_admin:
             if st.form_submit_button("הוסף") and n_name and n_cat:
                 if insert_names_batch([{"name": n_name, "gender": n_gen, "category": n_cat, "meaning": n_mean}]):
                     st.success("השם נוסף!")
+                    
     with tab3:
         all_names = fetch_all_names()
         st.write(f"סך הכל במאגר כרגע: **{len(all_names)}** שמות")
@@ -290,10 +294,10 @@ if st.session_state.is_admin:
             
     with tab4:
         st.write("סטטיסטיקות שימוש לפי חדרים (לחץ על חדר לפתיחה):")
-        if st.button("🔄 רענן נתונים"):
+        if st.button("🔄 רענן סטטיסטיקות"):
             st.rerun()
         
-        swipes_data = get_all_swipes_stats()
+        swipes_data = get_all_swipes()
         if not swipes_data:
             st.info("אין עדיין החלקות במערכת או שהטבלה ריקה.")
         else:
@@ -313,6 +317,44 @@ if st.session_state.is_admin:
                     rows = [{"משתמש": u, "כמות שמות שסומנו (אהב/פסל)": cnt} for u, cnt in sorted(users_counts.items(), key=lambda x: x[1], reverse=True)]
                     room_df = pd.DataFrame(rows)
                     st.markdown(room_df.to_html(index=False, classes="rtl-table"), unsafe_allow_html=True)
+                    
+    with tab5:
+        st.write("כל ההתאמות שנוצרו במערכת, מסודרות לפי חדרים:")
+        if st.button("🔄 רענן התאמות"):
+            st.rerun()
+            
+        all_swipes_data = get_all_swipes()
+        all_names_db = fetch_all_names()
+        
+        if not all_swipes_data:
+            st.info("אין עדיין נתונים במערכת.")
+        else:
+            # סידור ההחלקות לפי חדרים
+            rooms_swipes = {}
+            for row in all_swipes_data:
+                r = row.get("room_code")
+                if not r: r = "חדר לא ידוע"
+                if r not in rooms_swipes:
+                    rooms_swipes[r] = []
+                rooms_swipes[r].append(row)
+            
+            # הצגת ההתאמות לכל חדר
+            for room_code, r_swipes in sorted(rooms_swipes.items()):
+                with st.expander(f"🏠 חדר: {room_code}"):
+                    p_matches, f_matches, np_matches = get_matches_local(r_swipes)
+                    
+                    if not p_matches and not f_matches and not np_matches:
+                        st.info("אין עדיין התאמות בחדר זה.")
+                    else:
+                        if p_matches:
+                            st.markdown("**💘 התאמות זוגיות (אבא ואמא):**")
+                            st.markdown(build_matches_df(p_matches, all_names_db).to_html(index=False, classes="rtl-table"), unsafe_allow_html=True)
+                        if f_matches:
+                            st.markdown("**👨‍👩‍👧‍👦 התאמות משפחתיות (הורים + משפחה):**")
+                            st.markdown(build_matches_df(f_matches, all_names_db).to_html(index=False, classes="rtl-table"), unsafe_allow_html=True)
+                        if np_matches:
+                            st.markdown("**✨ התאמות משפחה (ללא הורים):**")
+                            st.markdown(build_matches_df(np_matches, all_names_db).to_html(index=False, classes="rtl-table"), unsafe_allow_html=True)
             
     st.stop()
 
@@ -330,7 +372,7 @@ if not st.session_state.room_code or not st.session_state.user_name:
 
         if st.form_submit_button("היכנס לחדר", type="primary"):
             if room and user:
-                if role in ["אבא", "אמא"] and parent_pwd != "8551":
+                if role in ["אבא", "אמא"] and parent_pwd != "הראלהמלך":
                     st.error("❌ סיסמה שגויה לתפקיד אבא/אמא! אנא הזן את הסיסמה הנכונה.")
                 else:
                     success, msg = check_and_register_user(room, user, role)
