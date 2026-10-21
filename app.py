@@ -188,19 +188,27 @@ def get_matches_local(room_swipes):
                 name_likes[b_name]["users"].append(row["user_name"])
                 name_likes[b_name]["roles"].append(row.get("role") or "אחר")
     
-    parent_matches, family_matches = [], []
+    parent_matches, family_matches, non_parent_matches = [], [], []
     for b_name, info in name_likes.items():
         users, roles = info["users"], info["roles"]
-        has_aba, has_ima = "אבא" in roles, "אמא" in roles
+        has_aba = "אבא" in roles
+        has_ima = "אמא" in roles
         has_family = any(r not in ["אבא", "אמא"] for r in roles)
         users_str = ", ".join(users)
         
+        # התאמות שרלוונטיות להורים
         if has_aba and has_ima:
             parent_matches.append({"name": b_name, "users": users_str})
         elif (has_aba or has_ima) and has_family:
             family_matches.append({"name": b_name, "users": users_str})
             
-    return parent_matches, family_matches
+        # התאמות שרלוונטיות לשאר המשפחה (מצנזר לחלוטין את ההורים)
+        non_parent_users = [u for u, r in zip(users, roles) if r not in ["אבא", "אמא"]]
+        if len(non_parent_users) >= 2:
+            np_users_str = ", ".join(non_parent_users)
+            non_parent_matches.append({"name": b_name, "users": np_users_str, "user_list": non_parent_users})
+            
+    return parent_matches, family_matches, non_parent_matches
 
 def get_my_likes_local(room_swipes, user):
     return [row["baby_name"] for row in room_swipes if row["user_name"] == user and row["status"] == "like"]
@@ -224,7 +232,7 @@ def matches_gender_filter(item_gender, selected_filter):
     return True
 
 # --- אתחול משתני סשן ---
-for key in ["room_code", "user_name", "user_role", "selected_gender", "selected_category", "is_admin", "view_mode", "match_alert", "perfect_match_alert", "sort_order", "random_seed", "search_query", "last_swiped_name", "force_next_name"]:
+for key in ["room_code", "user_name", "user_role", "selected_gender", "selected_category", "is_admin", "view_mode", "big_alert", "sort_order", "random_seed", "search_query", "last_swiped_name", "force_next_name"]:
     if key not in st.session_state:
         if key == "is_admin":
             st.session_state[key] = False
@@ -356,49 +364,75 @@ if not NAMES_DB:
     st.stop()
 
 # ==========================================
-# משיכת נתונים מרוכזת ומנגנון התראות (רק לאבא ואמא!)
+# משיכת נתונים מרוכזת ומנגנון התראות גלובלי (אחיד לכולם)
 # ==========================================
 room_swipes = fetch_room_swipes(st.session_state.room_code)
 room_users = get_room_users(st.session_state.room_code)
-parent_matches, family_matches = get_matches_local(room_swipes)
+parent_matches, family_matches, non_parent_matches = get_matches_local(room_swipes)
 
 is_parent = st.session_state.user_role in ["אבא", "אמא"]
 
-if is_parent:
-    current_pms = set(pm["name"] for pm in parent_matches)
-    current_fms = set(fm["name"] for fm in family_matches)
+# חישוב התאמות קיימות
+current_pms = set(pm["name"] for pm in parent_matches)
+current_fms = set(fm["name"] for fm in family_matches)
+current_npms = set(nm["name"] for nm in non_parent_matches)
 
-    if "notified_pms" not in st.session_state:
-        st.session_state.notified_pms = current_pms.copy()
-    if "notified_fms" not in st.session_state:
-        st.session_state.notified_fms = current_fms.copy()
+# אתחול זיכרון פעם אחת (כדי לא להקפיץ פופ-אפ על התאמות ישנות בכניסה)
+if "notified_pms" not in st.session_state: st.session_state.notified_pms = current_pms.copy()
+if "notified_fms" not in st.session_state: st.session_state.notified_fms = current_fms.copy()
+if "notified_npms" not in st.session_state: st.session_state.notified_npms = current_npms.copy()
 
-    new_pms = current_pms - st.session_state.notified_pms
-    new_fms = current_fms - st.session_state.notified_fms
+# איתור התאמות חדשות
+new_pms = current_pms - st.session_state.notified_pms
+new_fms = current_fms - st.session_state.notified_fms
+new_npms = current_npms - st.session_state.notified_npms
 
-    if new_pms and not st.session_state.perfect_match_alert:
-        pm_name = list(new_pms)[0]
-        gender = "יוניסקס"
-        for item in NAMES_DB:
-            if item["name"] == pm_name:
-                gender = item.get("gender", "יוניסקס")
-                break
-        st.session_state.perfect_match_alert = {"name": pm_name, "gender": gender}
-        st.session_state.notified_pms.add(pm_name)
-
-    elif new_fms and not st.session_state.match_alert:
-        fm_name = list(new_fms)[0]
-        users_str = ""
-        for fm in family_matches:
-            if fm["name"] == fm_name:
-                users_str = fm["users"]
-                break
-        st.session_state.match_alert = f"🎉 התאמה משפחתית על השם '{fm_name}' עם: {users_str}!"
-        st.session_state.notified_fms.add(fm_name)
+# אם אין פופ-אפ פעיל כרגע, בודקים אם צריך להקפיץ אחד
+if not st.session_state.big_alert:
+    if is_parent:
+        if new_pms:
+            name = list(new_pms)[0]
+            gender = next((item.get("gender", "יוניסקס") for item in NAMES_DB if item["name"] == name), "יוניסקס")
+            st.session_state.big_alert = {"title": "🎉 התאמה זוגית מושלמת! 🎉", "text": "אבא ואמא הסכימו על השם:", "name": name, "gender": gender}
+            st.session_state.notified_pms.add(name)
+        elif new_fms:
+            name = list(new_fms)[0]
+            gender = next((item.get("gender", "יוניסקס") for item in NAMES_DB if item["name"] == name), "יוניסקס")
+            users_str = next((fm["users"] for fm in family_matches if fm["name"] == name), "")
+            st.session_state.big_alert = {"title": "🎉 התאמה משפחתית! 🎉", "text": f"הסכמה על השם יחד עם {users_str}:", "name": name, "gender": gender}
+            st.session_state.notified_fms.add(name)
+    else:
+        if new_npms:
+            name = list(new_npms)[0]
+            gender = next((item.get("gender", "יוניסקס") for item in NAMES_DB if item["name"] == name), "יוניסקס")
+            users_str = next((nm["users"] for nm in non_parent_matches if nm["name"] == name), "")
+            st.session_state.big_alert = {"title": "🎉 התאמה במשפחה! 🎉", "text": f"יש הסכמה בין {users_str} על השם:", "name": name, "gender": gender}
+            st.session_state.notified_npms.add(name)
 
 
 # ==========================================
-# תפריט הניווט העליון (מותאם לפי הרשאות: הורים רואים התאמות, שאר המשפחה לא)
+# תצוגת פופ-אפ ענק ואחיד (עובד לכולם ועוצר את המסך)
+# ==========================================
+if st.session_state.big_alert:
+    alert = st.session_state.big_alert
+    baby_emoji = "👦" if alert["gender"] == "זכר" else "👧" if alert["gender"] == "נקבה" else "👶"
+    st.balloons()
+    st.markdown(f"""
+    <div style="text-align: center; padding: 50px 20px; background: linear-gradient(135deg, #fdfbfb 0%, #ebedee 100%); border-radius: 20px; border: 3px solid #ff4b4b; box-shadow: 0 10px 20px rgba(0,0,0,0.1); margin-bottom: 30px; margin-top: 20px;">
+        <h1 style="font-size: 34px; color: #ff4b4b; margin-bottom: 10px;">{alert['title']}</h1>
+        <h2 style="font-size: 24px; color: #333;">{alert['text']} <br><br><b style="font-size: 44px; color: #ff4b4b;">{alert['name']}</b></h2>
+        <div style="font-size: 110px; animation: bounce 1s infinite; margin: 30px 0;">{baby_emoji}</div>
+        <style>@keyframes bounce {{ 0%, 100% {{ transform: translateY(0); }} 50% {{ transform: translateY(-30px); }} }}</style>
+    </div>
+    """, unsafe_allow_html=True)
+    if st.button("🚀 איזה יופי! המשך הלאה", use_container_width=True, type="primary"):
+        st.session_state.big_alert = None
+        st.rerun()
+    st.stop()
+
+
+# ==========================================
+# תפריט הניווט העליון לכל המשתמשים (רשת של 2x2 או שורה של 3)
 # ==========================================
 users_str = " | ".join([f"{u['user_name']} ({u['role']})" for u in room_users])
 st.markdown(f"<div style='text-align:center; color:#888; font-size: 13px; margin-bottom: 12px; background:#f8f9fa; padding: 5px; border-radius: 8px;'>👥 <b>מחוברים כרגע בחדר {st.session_state.room_code}:</b><br>{users_str}</div>", unsafe_allow_html=True)
@@ -460,40 +494,11 @@ else:
 
 st.markdown("---")
 
-# ==========================================
-# תצוגת פופ-אפ התאמות (רק להורים!)
-# ==========================================
-if is_parent:
-    if st.session_state.perfect_match_alert:
-        pm = st.session_state.perfect_match_alert
-        baby_emoji = "👦" if pm["gender"] == "זכר" else "👧" if pm["gender"] == "נקבה" else "👶"
-        st.balloons()
-        st.markdown(f"""
-        <div style="text-align: center; padding: 50px 20px; background: linear-gradient(135deg, #fdfbfb 0%, #ebedee 100%); border-radius: 20px; border: 3px solid #ff4b4b; box-shadow: 0 10px 20px rgba(0,0,0,0.1); margin-bottom: 30px; margin-top: 20px;">
-            <h1 style="font-size: 38px; color: #ff4b4b; margin-bottom: 10px;">🎉 התאמה זוגית מושלמת! 🎉</h1>
-            <h2 style="font-size: 26px; color: #333;">אבא ואמא הסכימו על השם: <br><br><b style="font-size: 40px; color: #ff4b4b;">{pm['name']}</b></h2>
-            <div style="font-size: 110px; animation: bounce 1s infinite; margin: 30px 0;">{baby_emoji}</div>
-            <style>@keyframes bounce {{ 0%, 100% {{ transform: translateY(0); }} 50% {{ transform: translateY(-30px); }} }}</style>
-        </div>
-        """, unsafe_allow_html=True)
-        if st.button("🚀 איזה יופי! המשך הלאה", use_container_width=True, type="primary"):
-            st.session_state.perfect_match_alert = None
-            st.rerun()
-        st.stop()
-
-    elif st.session_state.match_alert:
-        st.toast(st.session_state.match_alert, icon="💘")
-        st.success(st.session_state.match_alert)
-        st.session_state.match_alert = None
-
-
 # --- ניתוב למסכים ---
 
-# --- מסך התאמות (מוגן רק להורים) ---
+# --- מסך התאמות ---
 if st.session_state.view_mode == "matches":
-    if not is_parent:
-        st.error("🚫 אזור ההתאמות מיועד לאבא ואמא בלבד!")
-    else:
+    if is_parent:
         st.title("ההתאמות בחדר 👑")
         t1, t2 = st.tabs(["💘 התאמה זוגית מושלמת", "👨‍👩‍👧‍👦 אהוב על המשפחה"])
         with t1:
@@ -506,6 +511,24 @@ if st.session_state.view_mode == "matches":
                 st.markdown(build_matches_df(family_matches, NAMES_DB).to_html(index=False, classes="rtl-table"), unsafe_allow_html=True)
             else:
                 st.info("עדיין אין שמות עם תמיכה משפחתית משולבת.")
+    else:
+        st.title("ההתאמות במשפחה 👑")
+        st.write("כאן תוכלו לראות אילו שמות אהובים על כמה בני משפחה יחד (הבחירות של ההורים נשארות בסוד 🤫).")
+        
+        my_f_matches = [m for m in non_parent_matches if st.session_state.user_name in m["user_list"]]
+        other_f_matches = [m for m in non_parent_matches if st.session_state.user_name not in m["user_list"]]
+        
+        st.subheader("✨ ההתאמות שלי עם שאר המשפחה")
+        if my_f_matches:
+            st.markdown(build_matches_df(my_f_matches, NAMES_DB).to_html(index=False, classes="rtl-table"), unsafe_allow_html=True)
+        else:
+            st.info("עדיין אין לך התאמות משותפות עם משתתפים אחרים.")
+            
+        st.subheader("👨‍👩‍👧‍👦 התאמות בין שאר המשתתפים")
+        if other_f_matches:
+            st.markdown(build_matches_df(other_f_matches, NAMES_DB).to_html(index=False, classes="rtl-table"), unsafe_allow_html=True)
+        else:
+            st.info("עדיין אין התאמות משותפות בין שאר המשתתפים.")
 
 # --- מסך שמות שאהבתי ---
 elif st.session_state.view_mode == "my_likes":
