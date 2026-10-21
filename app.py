@@ -330,7 +330,7 @@ if not st.session_state.room_code or not st.session_state.user_name:
 
         if st.form_submit_button("היכנס לחדר", type="primary"):
             if room and user:
-                if role in ["אבא", "אמא"] and parent_pwd != "הראלהמלך":
+                if role in ["אבא", "אמא"] and parent_pwd != "8551":
                     st.error("❌ סיסמה שגויה לתפקיד אבא/אמא! אנא הזן את הסיסמה הנכונה.")
                 else:
                     success, msg = check_and_register_user(room, user, role)
